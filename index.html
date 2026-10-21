@@ -6,9 +6,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Turn a Minecraft skin or block texture into tiled, printable panels that wrap a cardboard cube or box.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/fonts/fonts.css">
 <style>
 /* Layout: workbench — controls in a narrow left column, live box, net and sheet plan on a cutting-mat area to the right. */
 :root {
@@ -243,7 +241,7 @@ figcaption b { color: var(--ink); font-weight: 600; }
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js" integrity="sha512-plOdviVmws4Y3JAvbnpfKb2hVxKM1lCwsi3vmElYRj+tiDLffZ4FVUj5a8vyKJ9pIgl8JCAHEJ4D1iUKBecswg==" crossorigin="anonymous"></script>
 <script id="core">
 /* ---------- Core: texture reading, box geometry, sheet planning and PDF drawing (no DOM) ---------- */
 const PRESET_IMAGES = {
