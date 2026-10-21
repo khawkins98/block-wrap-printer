@@ -94,6 +94,10 @@ input:focus-visible, select:focus-visible, button:focus-visible, .drop:focus-wit
 figure { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 figcaption { font-size: 12px; color: var(--muted); }
 figcaption b { color: var(--ink); font-weight: 600; }
+.preview-caption { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.scale-ref { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.scale-ref select { font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.scale-ref select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .stage { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; display: grid; place-items: center; padding: 12px; min-height: 280px; position: relative; }
 .stage canvas { max-width: 100%; height: auto; image-rendering: pixelated; }
 .box-stage { perspective: 900px; touch-action: none; cursor: grab; overflow: hidden; }
@@ -218,7 +222,17 @@ figcaption b { color: var(--ink); font-weight: 600; }
       <div class="views">
         <figure>
           <div class="stage box-stage" id="boxStage"><div class="box3d" id="box3d"></div></div>
-          <figcaption><b>Preview.</b> Drag to turn it.</figcaption>
+          <figcaption class="preview-caption">
+            <span><b>Preview.</b> Drag to turn it.</span>
+            <label class="scale-ref">
+              <span>Scale:</span>
+              <select id="scaleRef" title="Choose a scale comparison object">
+                <option value="can">🥤 Soda can (122 mm)</option>
+                <option value="banana">🍌 Banana (180 mm)</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+          </figcaption>
         </figure>
         <figure>
           <div class="stage"><canvas id="net" width="300" height="400"></canvas></div>
@@ -877,13 +891,257 @@ function renderStats(plan, pixel) {
   $("facts").innerHTML = facts.map(f => `<li>${f}</li>`).join("");
 }
 
+// 3D scale comparison objects (soda can ~122 mm, banana ~180 mm)
+function createSodaCan(k, box) {
+  const canH = 122 * k, canR = 33 * k;
+  const W = box.W * k, H = box.H * k, D = box.D * k;
+  const gap = Math.max(16, 26 * k);
+  const canX = W / 2 + gap + canR;
+  const canY = (H - canH) / 2;
+  const canZ = D * 0.22;
+
+  const holder = document.createElement("div");
+  holder.className = "scale-can";
+  holder.style.position = "absolute";
+  holder.style.transformStyle = "preserve-3d";
+  holder.style.transform = `translate3d(${canX}px, ${canY}px, ${canZ}px)`;
+
+  // Ground shadow
+  const shadow = document.createElement("div");
+  shadow.style.position = "absolute";
+  shadow.style.width = (canR * 2.5) + "px";
+  shadow.style.height = (canR * 2.5) + "px";
+  shadow.style.left = (-canR * 1.25) + "px";
+  shadow.style.top = (-canR * 1.25) + "px";
+  shadow.style.borderRadius = "50%";
+  shadow.style.transform = `translateY(${canH / 2 + 0.4}px) rotateX(90deg)`;
+  shadow.style.background = "radial-gradient(ellipse at center, rgba(0,0,0,0.36) 0%, rgba(0,0,0,0.12) 50%, rgba(0,0,0,0) 75%)";
+  shadow.style.pointerEvents = "none";
+  holder.append(shadow);
+
+  // Top lid (silver aluminum with rim and tab)
+  const lid = document.createElement("div");
+  lid.style.position = "absolute";
+  lid.style.width = (canR * 2) + "px";
+  lid.style.height = (canR * 2) + "px";
+  lid.style.left = (-canR) + "px";
+  lid.style.top = (-canR) + "px";
+  lid.style.borderRadius = "50%";
+  lid.style.transform = `translateY(${-canH / 2}px) rotateX(90deg)`;
+  lid.style.background = "radial-gradient(circle at 45% 45%, #f1f5f9 0%, #cbd5e1 60%, #94a3b8 100%)";
+  lid.style.boxShadow = "inset 0 0 0 1px #64748b";
+
+  // Pull tab
+  const tab = document.createElement("div");
+  tab.style.position = "absolute";
+  tab.style.width = Math.max(3, canR * 0.45) + "px";
+  tab.style.height = Math.max(5, canR * 0.72) + "px";
+  tab.style.left = (canR - canR * 0.22) + "px";
+  tab.style.top = (canR * 0.58) + "px";
+  tab.style.borderRadius = "2px";
+  tab.style.background = "#e2e8f0";
+  tab.style.border = "1px solid #64748b";
+  lid.append(tab);
+  holder.append(lid);
+
+  // Bottom base
+  const base = document.createElement("div");
+  base.style.position = "absolute";
+  base.style.width = (canR * 2) + "px";
+  base.style.height = (canR * 2) + "px";
+  base.style.left = (-canR) + "px";
+  base.style.top = (-canR) + "px";
+  base.style.borderRadius = "50%";
+  base.style.transform = `translateY(${canH / 2}px) rotateX(-90deg)`;
+  base.style.background = "radial-gradient(circle, #94a3b8 0%, #64748b 100%)";
+  holder.append(base);
+
+  // Can label canvas
+  const N = 12;
+  const facetW = Math.ceil(2 * canR * Math.tan(Math.PI / N)) + 0.6;
+  const facetDist = canR;
+  const totalW = Math.round(N * facetW);
+  const labelCanvas = document.createElement("canvas");
+  labelCanvas.width = totalW;
+  labelCanvas.height = Math.max(1, Math.round(canH));
+  const ctx = labelCanvas.getContext("2d");
+  const cw = labelCanvas.width, ch = labelCanvas.height;
+
+  const rimH = Math.max(2, ch * 0.08);
+  // Silver top rim
+  const rimGrad = ctx.createLinearGradient(0, 0, 0, rimH);
+  rimGrad.addColorStop(0, "#94a3b8"); rimGrad.addColorStop(0.5, "#e2e8f0"); rimGrad.addColorStop(1, "#94a3b8");
+  ctx.fillStyle = rimGrad;
+  ctx.fillRect(0, 0, cw, rimH);
+
+  // Red body gradient
+  const bodyGrad = ctx.createLinearGradient(0, rimH, 0, ch - rimH);
+  bodyGrad.addColorStop(0, "#b91c1c"); bodyGrad.addColorStop(0.2, "#dc2626"); bodyGrad.addColorStop(0.8, "#ef4444"); bodyGrad.addColorStop(1, "#991b1b");
+  ctx.fillStyle = bodyGrad;
+  ctx.fillRect(0, rimH, cw, ch - 2 * rimH);
+
+  // White dynamic swoosh across label
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.beginPath();
+  ctx.moveTo(0, rimH + (ch - 2 * rimH) * 0.62);
+  ctx.bezierCurveTo(cw * 0.25, rimH + (ch - 2 * rimH) * 0.45, cw * 0.45, rimH + (ch - 2 * rimH) * 0.75, cw * 0.7, rimH + (ch - 2 * rimH) * 0.55);
+  ctx.lineTo(cw * 0.7, rimH + (ch - 2 * rimH) * 0.66);
+  ctx.bezierCurveTo(cw * 0.45, rimH + (ch - 2 * rimH) * 0.84, cw * 0.25, rimH + (ch - 2 * rimH) * 0.54, 0, rimH + (ch - 2 * rimH) * 0.71);
+  ctx.closePath();
+  ctx.fill();
+
+  // "COLA" text on front
+  const fontSize = Math.max(7, Math.round(ch * 0.17));
+  ctx.font = `700 ${fontSize}px Silkscreen, monospace`;
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.4)";
+  ctx.shadowOffsetY = 1;
+  ctx.shadowBlur = 2;
+  ctx.fillText("COLA", cw * 0.25, ch * 0.44);
+  ctx.shadowColor = "transparent";
+
+  // Silver bottom rim
+  const botRimGrad = ctx.createLinearGradient(0, ch - rimH, 0, ch);
+  botRimGrad.addColorStop(0, "#94a3b8"); botRimGrad.addColorStop(0.5, "#cbd5e1"); botRimGrad.addColorStop(1, "#64748b");
+  ctx.fillStyle = botRimGrad;
+  ctx.fillRect(0, ch - rimH, cw, rimH);
+
+  const labelUrl = labelCanvas.toDataURL("image/png");
+
+  // Create cylinder facets
+  for (let i = 0; i < N; i++) {
+    const angle = i * (360 / N);
+    const facet = document.createElement("div");
+    facet.style.position = "absolute";
+    facet.style.left = (-facetW / 2) + "px";
+    facet.style.top = (-canH / 2) + "px";
+    facet.style.width = facetW + "px";
+    facet.style.height = canH + "px";
+    facet.style.transform = `rotateY(${angle}deg) translateZ(${facetDist}px)`;
+    facet.style.backgroundImage = `url(${labelUrl})`;
+    facet.style.backgroundPosition = `${-i * facetW}px 0px`;
+    facet.style.backgroundSize = `${totalW}px ${canH}px`;
+    facet.style.backfaceVisibility = "hidden";
+    const rad = (angle - 45) * Math.PI / 180;
+    const light = Math.max(0.48, Math.min(1.18, 0.82 + 0.32 * Math.cos(rad)));
+    facet.style.filter = `brightness(${light.toFixed(2)})`;
+    holder.append(facet);
+  }
+
+  return holder;
+}
+
+function createBanana(k, box) {
+  const banL = 180 * k, banR = 18 * k;
+  const W = box.W * k, H = box.H * k, D = box.D * k;
+  const gap = Math.max(16, 26 * k);
+  const banX = W / 2 + gap + banR * 1.5;
+  const banY = H / 2;
+  const banZ = D * 0.15;
+
+  const holder = document.createElement("div");
+  holder.className = "scale-banana";
+  holder.style.position = "absolute";
+  holder.style.transformStyle = "preserve-3d";
+  holder.style.transform = `translate3d(${banX}px, ${banY}px, ${banZ}px)`;
+
+  // Ground shadow
+  const shadow = document.createElement("div");
+  shadow.style.position = "absolute";
+  shadow.style.width = (banR * 2.2) + "px";
+  shadow.style.height = (banL * 1.05) + "px";
+  shadow.style.left = (-banR * 1.1) + "px";
+  shadow.style.top = (-banL * 0.52) + "px";
+  shadow.style.borderRadius = "40%";
+  shadow.style.transform = `translateY(0.4px) rotateX(90deg) rotateZ(10deg)`;
+  shadow.style.background = "radial-gradient(ellipse at center, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0) 75%)";
+  shadow.style.pointerEvents = "none";
+  holder.append(shadow);
+
+  // 9 curved segments along the arc
+  const S = 9;
+  for (let s = 0; s < S; s++) {
+    const u = s / (S - 1);
+    const arch = Math.sin(u * Math.PI);
+    const z = (u - 0.5) * banL;
+    const xCurve = (1 - arch) * (banR * 1.4);
+    const yCurl = -banR - (1 - arch) * (banR * 1.1);
+
+    const segR = banR * (0.35 + 0.65 * arch);
+    const segH = (banL / S) * 1.08;
+
+    const seg = document.createElement("div");
+    seg.style.position = "absolute";
+    seg.style.width = (segR * 2) + "px";
+    seg.style.height = (segR * 2) + "px";
+    seg.style.left = (-segR) + "px";
+    seg.style.top = (-segR) + "px";
+    seg.style.transformStyle = "preserve-3d";
+
+    const rotY = (u - 0.5) * -36;
+    const rotX = (u - 0.5) * 20;
+    seg.style.transform = `translate3d(${xCurve}px, ${yCurl}px, ${z}px) rotateY(${rotY}deg) rotateX(${rotX}deg)`;
+
+    let topColor = "#fff066", sideColor = "#fec810", botColor = "#e6ab08";
+    if (u < 0.12) {
+      topColor = "#3d3b14"; sideColor = "#302e0e"; botColor = "#242208";
+    } else if (u < 0.22) {
+      topColor = "#b8d433"; sideColor = "#9bb828"; botColor = "#7d991b";
+    } else if (u > 0.88) {
+      topColor = "#3a2614"; sideColor = "#2c1c0e"; botColor = "#1e1308";
+    }
+
+    const w = segR * 2, h = segR * 2, d = segH;
+    const faces = [
+      { t: `translateZ(${d / 2}px)`, bg: sideColor, w, h },
+      { t: `rotateY(180deg) translateZ(${d / 2}px)`, bg: sideColor, w, h },
+      { t: `rotateY(90deg) translateZ(${w / 2}px)`, bg: sideColor, w: d, h },
+      { t: `rotateY(-90deg) translateZ(${w / 2}px)`, bg: sideColor, w: d, h },
+      { t: `rotateX(90deg) translateZ(${h / 2}px)`, bg: topColor, w, h: d },
+      { t: `rotateX(-90deg) translateZ(${h / 2}px)`, bg: botColor, w, h: d },
+    ];
+    for (const f of faces) {
+      const faceEl = document.createElement("div");
+      faceEl.style.position = "absolute";
+      faceEl.style.width = f.w + "px";
+      faceEl.style.height = f.h + "px";
+      faceEl.style.left = (-f.w / 2) + "px";
+      faceEl.style.top = (-f.h / 2) + "px";
+      faceEl.style.background = f.bg;
+      faceEl.style.transform = f.t;
+      faceEl.style.backfaceVisibility = "hidden";
+      seg.append(faceEl);
+    }
+    holder.append(seg);
+  }
+
+  return holder;
+}
+
 // 3D preview: faces sized in px, placed around the box centre.
 let rot = { x: -24, y: -36 };
 function renderBox(faces, box, n, fit) {
   const holder = $("box3d");
   holder.innerHTML = "";
-  const k = 170 / Math.max(box.W, box.D, box.H), res = 2;
+  const scaleType = $("scaleRef") ? $("scaleRef").value : "can";
+  const hasScale = scaleType !== "none";
+  const k = (hasScale ? 138 : 170) / Math.max(box.W, box.D, box.H), res = 2;
   const W = box.W * k, D = box.D * k, H = box.H * k;
+
+  // Ground shadow under the box
+  const boxShadow = document.createElement("div");
+  boxShadow.style.position = "absolute";
+  boxShadow.style.width = (W * 1.1) + "px";
+  boxShadow.style.height = (D * 1.1) + "px";
+  boxShadow.style.left = (-W * 1.1 / 2) + "px";
+  boxShadow.style.top = (-D * 1.1 / 2) + "px";
+  boxShadow.style.transform = `translateY(${H / 2 + 0.3}px) rotateX(90deg)`;
+  boxShadow.style.background = "radial-gradient(ellipse at center, rgba(0,0,0,0.32) 0%, rgba(0,0,0,0.12) 55%, rgba(0,0,0,0) 75%)";
+  boxShadow.style.pointerEvents = "none";
+  holder.append(boxShadow);
+
   const place = {
     front: `translateZ(${D / 2}px)`, back: `rotateY(180deg) translateZ(${D / 2}px)`,
     right: `rotateY(90deg) translateZ(${W / 2}px)`, left: `rotateY(-90deg) translateZ(${W / 2}px)`,
@@ -897,6 +1155,14 @@ function renderBox(faces, box, n, fit) {
     c.style.transform = `translate(${-cw / 2}px, ${-ch / 2}px) ${place[name]}`;
     holder.append(c);
   }
+
+  // Scale reference item
+  if (scaleType === "can") {
+    holder.append(createSodaCan(k, box));
+  } else if (scaleType === "banana") {
+    holder.append(createBanana(k, box));
+  }
+
   applyRotation();
 }
 function applyRotation() { $("box3d").style.transform = `rotateX(${rot.x}deg) rotateY(${rot.y}deg)`; }
@@ -1052,6 +1318,9 @@ function init() {
   });
   $("unit").addEventListener("change", e => { convertUnits(e.target.value); update(); });
   $("planFace").addEventListener("change", renderPlan);
+  $("scaleRef").addEventListener("change", () => {
+    if (current) renderBox(current.faces, current.box, current.n, current.fit);
+  });
   $("file").addEventListener("change", e => useFile(e.target.files[0]));
   const drop = $("drop");
   ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
