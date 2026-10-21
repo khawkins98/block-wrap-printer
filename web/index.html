@@ -1,0 +1,881 @@
+<title>Block Wrap Printer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: workbench — controls in a narrow left column, live cube, net and sheet plan on a cutting-mat area to the right. */
+:root {
+  --bg: #eef1ec;
+  --surface: #ffffff;
+  --ink: #1b231e;
+  --muted: #59655d;
+  --line: #d3dad2;
+  --mat: #dfe6de;
+  --mat-grid: #c9d3c8;
+  --accent: #c8460f;
+  --accent-ink: #ffffff;
+  --warn-bg: #fff1e6;
+  --font-display: "Silkscreen", "Courier New", monospace;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121612; --surface: #1b211c; --ink: #e5ebe4; --muted: #9aa69c; --line: #2f3831;
+    --mat: #18201a; --mat-grid: #243026; --accent: #ff7b3f; --accent-ink: #1a0d05; --warn-bg: #2d1c12;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121612; --surface: #1b211c; --ink: #e5ebe4; --muted: #9aa69c; --line: #2f3831;
+  --mat: #18201a; --mat-grid: #243026; --accent: #ff7b3f; --accent-ink: #1a0d05; --warn-bg: #2d1c12;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4vw, 36px); line-height: 1.1; margin: 0; letter-spacing: 0.02em; text-wrap: balance; }
+header.top p { margin: 0; color: var(--muted); max-width: 62ch; }
+.bench { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+legend { font-family: var(--font-display); font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 0; margin-bottom: 8px; }
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+.hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.row > * { min-width: 0; }
+input[type="number"], input[type="text"], select {
+  font: inherit; font-family: var(--font-data); font-size: 14px; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 4px; padding: 7px 8px; width: 100%;
+}
+input:focus-visible, select:focus-visible, button:focus-visible, .drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.preset { font: inherit; font-size: 12px; font-weight: 600; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px 4px 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.preset canvas { width: 40px; height: 40px; image-rendering: pixelated; }
+.preset[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.drop { border: 1px dashed var(--muted); border-radius: 4px; padding: 12px; font-size: 13px; color: var(--muted); text-align: center; cursor: pointer; position: relative; }
+.drop.over { border-color: var(--accent); color: var(--ink); }
+.drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.drop strong { color: var(--ink); }
+.notice { background: var(--warn-bg); border-left: 3px solid var(--accent); padding: 8px 10px; font-size: 13px; border-radius: 0 4px 4px 0; }
+.mat {
+  background-color: var(--mat);
+  background-image: linear-gradient(var(--mat-grid) 1px, transparent 1px), linear-gradient(90deg, var(--mat-grid) 1px, transparent 1px);
+  background-size: 24px 24px; border-radius: 6px; padding: 18px; display: flex; flex-direction: column; gap: 18px; min-width: 0;
+}
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; min-width: 0; }
+.stat b { display: block; font-family: var(--font-data); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.views { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 700px) { .views { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+figcaption { font-size: 12px; color: var(--muted); }
+figcaption b { color: var(--ink); font-weight: 600; }
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; display: grid; place-items: center; padding: 12px; min-height: 260px; }
+.stage canvas { max-width: 100%; height: auto; image-rendering: pixelated; }
+.cube-stage { perspective: 900px; min-height: 260px; touch-action: none; cursor: grab; }
+.cube { --s: 150px; width: var(--s); height: var(--s); position: relative; transform-style: preserve-3d; }
+.cube canvas { position: absolute; inset: 0; width: var(--s); height: var(--s); image-rendering: pixelated; backface-visibility: hidden; }
+.f-front { transform: translateZ(calc(var(--s) / 2)); }
+.f-back { transform: rotateY(180deg) translateZ(calc(var(--s) / 2)); }
+.f-right { transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); }
+.f-left { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
+.f-top { transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
+.f-bottom { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
+.make { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.btn { font: inherit; font-weight: 600; font-size: 15px; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 4px; padding: 11px 18px; cursor: pointer; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+#status { font-size: 13px; color: var(--muted); font-family: var(--font-data); min-width: 0; overflow-wrap: anywhere; }
+.facts { font-size: 13px; color: var(--muted); margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.facts b { color: var(--ink); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Block Wrap Printer</h1>
+    <p>Turn a Minecraft texture into printable panels that wrap a cardboard cube. Pick a texture, give the cube size, and it plans the sheets, overlaps and fold tabs for you.</p>
+  </header>
+
+  <div class="bench">
+    <form class="panel" id="controls" autocomplete="off">
+      <fieldset>
+        <legend>Texture</legend>
+        <div class="presets" id="presets"></div>
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept="image/png,image/gif,image/webp,image/jpeg">
+          <strong>Upload your own texture</strong><br>skin, unfolded cube, or a single tile
+        </label>
+        <div class="notice" id="notice" hidden></div>
+        <label class="field">Read the image as
+          <select id="layout">
+            <option value="skin">Creature skin (head only)</option>
+            <option value="net">Unfolded cube (cross shape)</option>
+            <option value="tile">One tile on every side</option>
+          </select>
+        </label>
+        <label class="check" id="hatRow"><input type="checkbox" id="hat" checked> Include the skin's hat layer</label>
+        <label class="field" id="uniformRow">Sides
+          <select id="uniform">
+            <option value="">Each side as drawn</option>
+            <option value="bottom">Bottom face on every side</option>
+            <option value="top">Top face on every side</option>
+            <option value="front">Front face on every side</option>
+          </select>
+        </label>
+        <label class="field">Name on the guide page
+          <input type="text" id="title" maxlength="40">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Cube</legend>
+        <div class="row">
+          <label class="field">Face size
+            <input type="number" id="size" min="1" step="any" inputmode="decimal">
+          </label>
+          <label class="field">Unit
+            <select id="unit"><option value="mm">mm</option><option value="cm">cm</option><option value="in">inches</option></select>
+          </label>
+        </div>
+        <label class="field">Wrap tab width (mm)
+          <input type="number" id="wrap" min="0" step="any" inputmode="decimal">
+          <span class="hint">Texture-printed flaps that fold around each edge.</span>
+        </label>
+        <label class="check"><input type="checkbox" id="bottom" checked> Print the bottom face</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Paper</legend>
+        <label class="field">Paper size
+          <select id="paper">
+            <option value="a3">A3 (297 × 420 mm)</option>
+            <option value="a4">A4 (210 × 297 mm)</option>
+            <option value="letter">US Letter (8.5 × 11 in)</option>
+            <option value="tabloid">Tabloid (11 × 17 in)</option>
+          </select>
+        </label>
+        <div class="row">
+          <label class="field">Overlap (mm)
+            <input type="number" id="overlap" min="5" step="any" placeholder="auto" inputmode="decimal">
+          </label>
+          <label class="field">Printer margin (mm)
+            <input type="number" id="margin" min="0" max="25" step="any" inputmode="decimal">
+          </label>
+        </div>
+        <span class="hint">Leave overlap blank to let the planner pick the widest one that fits.</span>
+      </fieldset>
+    </form>
+
+    <section class="mat" aria-label="Preview and sheet plan">
+      <div class="stats" id="stats"></div>
+      <div class="views">
+        <figure>
+          <div class="stage cube-stage" id="cubeStage"><div class="cube" id="cube"></div></div>
+          <figcaption><b>Cube preview.</b> Drag to turn it.</figcaption>
+        </figure>
+        <figure>
+          <div class="stage"><canvas id="net" width="300" height="400"></canvas></div>
+          <figcaption><b>The six faces</b>, unfolded. Left and right are as seen from the front.</figcaption>
+        </figure>
+      </div>
+      <figure>
+        <div class="stage"><canvas id="plan" width="560" height="560"></canvas></div>
+        <figcaption id="planCaption"></figcaption>
+      </figure>
+      <div class="make">
+        <button class="btn" type="button" id="makeBtn">Make the PDF</button>
+        <span id="status"></span>
+      </div>
+      <ul class="facts" id="facts"></ul>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script id="core">
+/* ---------- Core: texture reading, sheet planning and PDF drawing (no DOM) ---------- */
+const PRESET_IMAGES = {
+  wither: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAYAAACinX6EAAADJ0lEQVRo3t1ZbWsaQRD2k98FQRBRqtgqSutrjNHEtyQmGpM2gaYlJP//X0zmWRgZtnunbW/NeQfD3u7tevs888zc3JlK7TjK5TLBstks6XNYLpejfD5PmUzGjKO1+6ljPwRws9k0pgkAWFjY2kQQIOAB1iYgDGQiFCDet8NACAlTQGJCQAgQwDocEq8AAWmDFwLCQCYmBwjwUqlkzpH9tSoST4AA1ybKsB+BWi1HQUChUCCYbBpgW60WNRqNrVWrVeNxzJPsjzEAlDlYo4mS33XVEdKHkmJHQKVSoVavRxdXVzS/vaXFckn9wcCYhMJssTD96eWlmYO5Yx7rnJzQ107nDwLsOkI/Tj+cAHgSGy0Wi8aD2Bj68A76uN5hUPV63bTwtJx3u10zB3MFrKgAfVGJXUegFUXEQgEA3+AN1lnKXfYsrDcc0unZGa0eHkx/gHEGPJ7NaM6qWG42tGb78fRE3x8faXl3R+fTKXX7ffrCBAmRYXVEbAjQJp6Hp8fjMa1WK0qn08ZAAEz6MyYDcyT+RQnadtURsSCgzV7rcfyO5nO6YW9unp/p1+sr/Xx5od9vbzTnWAdwSF9IGI1GtGF13EAJ3ML7yAmtdnvrfZ0Eg+qI2OSAWq229bJkfDzaMI6+eF0MZMgctJgj6sAanQPC6ohYKKDDG0e8o12u1zS5vqZz9ubpZEJDtm+c8HAdrZxf8PU1x//q/p5arKDPTAieAG3+DTwWPykVSI2gTYiLTT0A72FjInGf95GwkHvqwipsnaz1sj8NPqy8jaq0tnPDPgRo0iIFHma+CLABBXnW+/5kM0GtDwLsMJA2iACv+9PVmavdN6Z1jLrWacDadM2ApGqP/e/+Un8DwNX+y+/Za8M8rA9Uk/acqPfnRQHabGm7zoMUgD5IOKgCok4yLrC6v2stwuCokqBLAS7g9jWXAuSerjGvSTDqG4g0dULcR67wvu1V7wT4SDL22n2ryw9JgvozlcsOWY67vOp9f4euBPd5Hzl4EowLAa57xml/ga/TEo/2Z3P9QcTVl3Wur0iRxfih/jmygWog+pFoAw0iwNtrr3W8A2lII6t5pP+3AAAAAElFTkSuQmCC",
+  grass: "data:image/png;base64,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",
+};
+const PRESETS = {
+  wither: { label: "Wither head", title: "Wither Skeleton head", image: "wither", layout: "skin", uniform: "", sizeMm: 300 },
+  grass: { label: "Grass block", title: "Grass block", image: "grass", layout: "net", uniform: "", sizeMm: 405 },
+  dirt: { label: "Dirt block", title: "Dirt block", image: "grass", layout: "net", uniform: "bottom", sizeMm: 405 },
+};
+const FACE_ORDER = ["front", "right", "back", "left", "top", "bottom"];
+const PAPERS = {
+  a3: { name: "A3", w: 297, h: 420 },
+  a4: { name: "A4", w: 210, h: 297 },
+  letter: { name: "US Letter", w: 215.9, h: 279.4 },
+  tabloid: { name: "Tabloid", w: 279.4, h: 431.8 },
+};
+// Page furniture around the artwork, in mm.
+const HEAD = 16, FOOT = 12, GUT = 10;
+const MIN_AUTO_OVERLAP = 15, MAX_AUTO_OVERLAP = 40;
+
+function gcd(a, b) { while (b) [a, b] = [b, a % b]; return a; }
+
+function hasTransparency(img, x, y, w, h) {
+  for (let j = y; j < y + h; j++)
+    for (let i = x; i < x + w; i++)
+      if (img.data[(j * img.width + i) * 4 + 3] < 128) return true;
+  return false;
+}
+
+/** Guess how an image is laid out; null when it cannot tell. */
+function detectLayout(img) {
+  const { width: w, height: h } = img;
+  if (w === 2 * h && w % 64 === 0) return "skin";
+  if (w === h && w % 64 === 0 && hasTransparency(img, 0, 0, w / 8, h / 8)) return "skin";
+  if (w * 4 === h * 3 && w % 3 === 0) return "net";
+  if (w === h) return "tile";
+  return null;
+}
+
+/** Read a square region and reduce it to its real texel grid (upscaled art collapses back). */
+function readSquare(img, x, y, s) {
+  const d = img.data, W = img.width;
+  const at = (i, j) => ((y + j) * W + (x + i)) * 4;
+  const same = (a, b) => d[a] === d[b] && d[a + 1] === d[b + 1] && d[a + 2] === d[b + 2] && d[a + 3] === d[b + 3];
+  let g = s;
+  for (let j = 0; j < s && g > 1; j++) {
+    let run = 1;
+    for (let i = 1; i < s; i++) { if (same(at(i, j), at(i - 1, j))) run++; else { g = gcd(g, run); run = 1; } }
+    g = gcd(g, run);
+  }
+  for (let i = 0; i < s && g > 1; i++) {
+    let run = 1;
+    for (let j = 1; j < s; j++) { if (same(at(i, j), at(i, j - 1))) run++; else { g = gcd(g, run); run = 1; } }
+    g = gcd(g, run);
+  }
+  const n = Math.min(64, s / g);
+  const px = new Uint8ClampedArray(n * n * 4);
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++) {
+      const src = at(Math.floor((i + 0.5) * s / n), Math.floor((j + 0.5) * s / n));
+      px.set(d.subarray(src, src + 4), (j * n + i) * 4);
+    }
+  return { n, px };
+}
+
+/** Rotate a face clockwise by 90° × turns. */
+function rotateFace(f, turns) {
+  let out = f;
+  for (let t = 0; t < ((turns % 4) + 4) % 4; t++) {
+    const n = out.n, px = new Uint8ClampedArray(out.px.length);
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < n; x++) {
+        const src = ((n - 1 - x) * n + y) * 4;
+        px.set(out.px.subarray(src, src + 4), (y * n + x) * 4);
+      }
+    out = { n, px };
+  }
+  return out;
+}
+
+function overlayFace(base, top) {
+  if (base.n !== top.n) return base;
+  const px = base.px.slice();
+  for (let i = 0; i < px.length; i += 4)
+    if (top.px[i + 3] >= 128) px.set(top.px.subarray(i, i + 4), i);
+  return { n: base.n, px };
+}
+
+function flattenFace(f) { // transparent texels become paper white, which also prints nothing
+  const px = f.px.slice();
+  for (let i = 0; i < px.length; i += 4) if (px[i + 3] < 128) px.set([255, 255, 255, 0], i);
+  return { n: f.n, px };
+}
+
+/**
+ * Pull six faces out of an image. Left and right are as seen when facing the front.
+ * Returns { faces } or { error }.
+ */
+function extractFaces(img, layout, opts = {}) {
+  const { width: w, height: h } = img;
+  const faces = {};
+  if (layout === "skin") {
+    if (!(w % 64 === 0 && (w === 2 * h || w === h)))
+      return { error: `A skin should be 64 × 32 or 64 × 64 pixels (or a multiple). This image is ${w} × ${h}.` };
+    const k = w / 64;
+    // Minecraft head UVs. The character's own right side is on your left when you face it.
+    const uv = { top: [8, 0], bottom: [16, 0], left: [0, 8], front: [8, 8], right: [16, 8], back: [24, 8] };
+    for (const [name, [u, v]] of Object.entries(uv)) {
+      let face = readSquare(img, u * k, v * k, 8 * k);
+      if (opts.hat !== false) face = overlayFace(face, readSquare(img, (u + 32) * k, v * k, 8 * k));
+      faces[name] = face;
+    }
+  } else if (layout === "net") {
+    if (w * 4 !== h * 3 || w % 3 !== 0)
+      return { error: `An unfolded cube should be 3 faces wide and 4 tall (3:4). This image is ${w} × ${h}.` };
+    const f = w / 3;
+    // Cross layout: back above the top, left/top/right across, then front and bottom below.
+    const cells = { back: [1, 0, 2], left: [0, 1, 3], top: [1, 1, 0], right: [2, 1, 1], front: [1, 2, 0], bottom: [1, 3, 0] };
+    for (const [name, [cx, cy, turns]] of Object.entries(cells))
+      faces[name] = rotateFace(readSquare(img, cx * f, cy * f, f), turns);
+  } else if (layout === "tile") {
+    const s = Math.min(w, h);
+    const tile = readSquare(img, Math.floor((w - s) / 2), Math.floor((h - s) / 2), s);
+    for (const name of FACE_ORDER) faces[name] = tile;
+  } else {
+    return { error: "Choose how to read this image." };
+  }
+  if (opts.uniform && faces[opts.uniform]) for (const name of FACE_ORDER) faces[name] = faces[opts.uniform];
+  for (const name of FACE_ORDER) faces[name] = flattenFace(faces[name]);
+  return { faces };
+}
+
+/**
+ * Work out how one face (plus its wrap tabs) splits across sheets.
+ * Sheets of a face all share one size; neighbours share an overlap band.
+ */
+function planLayout({ sizeMm, wrap, paper, margin, overlap, includeBottom }) {
+  const P = PAPERS[paper];
+  const T = sizeMm + 2 * wrap;
+  const best = [];
+  for (const [orient, pw, ph] of [["portrait", P.w, P.h], ["landscape", P.h, P.w]]) {
+    const W = pw - 2 * margin - 2 * GUT;
+    const H = ph - 2 * margin - HEAD - FOOT - 2 * GUT;
+    if (W <= 0 || H <= 0) continue;
+    const ov = overlap ?? MIN_AUTO_OVERLAP;
+    for (let cols = 1; cols <= 20; cols++) {
+      const tw = cols === 1 ? T : (T + (cols - 1) * ov) / cols;
+      if (tw > W) continue;
+      for (let rows = 1; rows <= 20; rows++) {
+        const th = rows === 1 ? T : (T + (rows - 1) * ov) / rows;
+        if (th > H) continue;
+        if ((cols > 1 && ov >= tw) || (rows > 1 && ov >= th)) continue;
+        best.push({ orient, pw, ph, W, H, cols, rows });
+        break;
+      }
+    }
+  }
+  if (!best.length) return { error: "That combination does not fit on the paper. Try a smaller margin, a smaller overlap or a larger paper size." };
+  best.sort((a, b) => a.cols * a.rows - b.cols * b.rows || (a.orient === "portrait" ? -1 : 1) - (b.orient === "portrait" ? -1 : 1));
+  const g = best[0];
+  let ov = overlap;
+  if (ov == null) {
+    // Widest overlap up to the cap that still fits this grid.
+    let limit = MAX_AUTO_OVERLAP;
+    if (g.cols > 1) limit = Math.min(limit, (g.cols * g.W - T) / (g.cols - 1));
+    if (g.rows > 1) limit = Math.min(limit, (g.rows * g.H - T) / (g.rows - 1));
+    ov = Math.max(MIN_AUTO_OVERLAP, Math.floor(limit));
+  }
+  const tw = g.cols === 1 ? T : (T + (g.cols - 1) * ov) / g.cols;
+  const th = g.rows === 1 ? T : (T + (g.rows - 1) * ov) / g.rows;
+  const faces = includeBottom ? FACE_ORDER : FACE_ORDER.filter(f => f !== "bottom");
+  return {
+    sizeMm, wrap, T, margin, overlap: ov, paper, paperName: P.name,
+    orient: g.orient, pageW: g.pw, pageH: g.ph, cols: g.cols, rows: g.rows, tw, th,
+    stepX: tw - ov, stepY: th - ov, faces, perFace: g.cols * g.rows, totalSheets: g.cols * g.rows * faces.length,
+  };
+}
+
+const sheetId = (col, row) => String.fromCharCode(65 + col) + (row + 1);
+const fmt = v => (Math.round(v * 10) / 10).toString();
+const EDGE_NOTE = { top: "BACK EDGE", bottom: "FRONT EDGE" };
+
+/** Draw the texels of one face that fall inside a window of the face panel. */
+function drawFaceArt(doc, face, plan, win, toPage) {
+  const { sizeMm: S, wrap: w, T } = plan, n = face.n, p = S / n, bleed = 0.06;
+  const band = k => (k === 0 ? [0, w] : k === n + 1 ? [w + S, T] : [w + (k - 1) * p, w + k * p]);
+  const tex = k => Math.min(n - 1, Math.max(0, k - 1));
+  const isCorner = (kx, ky) => (kx === 0 || kx === n + 1) && (ky === 0 || ky === n + 1);
+  for (let ky = 0; ky <= n + 1; ky++) {
+    const [ya, yb] = band(ky);
+    if (yb - ya <= 0 || yb <= win.y0 || ya >= win.y1) continue;
+    let kx = 0;
+    while (kx <= n + 1) {
+      const idx = (tex(ky) * n + tex(kx)) * 4;
+      if (isCorner(kx, ky) || face.px[idx + 3] < 128) { kx++; continue; }
+      let end = kx;
+      while (end + 1 <= n + 1 && !isCorner(end + 1, ky)) {
+        const j = (tex(ky) * n + tex(end + 1)) * 4;
+        if (face.px[j] !== face.px[idx] || face.px[j + 1] !== face.px[idx + 1] || face.px[j + 2] !== face.px[idx + 2] || face.px[j + 3] < 128) break;
+        end++;
+      }
+      const xa = band(kx)[0], xb = band(end)[1];
+      kx = end + 1;
+      if (xb - xa <= 0 || xb <= win.x0 || xa >= win.x1) continue;
+      const x1 = Math.max(xa - bleed, win.x0), x2 = Math.min(xb + bleed, win.x1);
+      const y1 = Math.max(ya - bleed, win.y0), y2 = Math.min(yb + bleed, win.y1);
+      doc.setFillColor(face.px[idx], face.px[idx + 1], face.px[idx + 2]);
+      doc.rect(toPage.x(x1), toPage.y(y1), x2 - x1, y2 - y1, "F");
+    }
+  }
+}
+
+function setText(doc, size, bold) { doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(size); doc.setTextColor(32, 43, 51); }
+
+function textUp(doc, str, x, yMid) { // reads bottom-to-top, centred on yMid
+  doc.text(str, x, yMid + doc.getTextWidth(str) / 2, { angle: 90 });
+}
+
+function scaleBar(doc, x, y, len) {
+  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.5);
+  doc.line(x, y, x + len, y);
+  doc.line(x, y - 2, x, y + 2); doc.line(x + len, y - 2, x + len, y + 2);
+  setText(doc, 7.5, false);
+  doc.text(`This line must measure exactly ${len} mm`, x, y + 5);
+}
+
+function guidePage(doc, plan, meta, pageRanges) {
+  const { pageW: pw, pageH: ph, margin: m } = plan;
+  const L = m + 6, R = pw - m - 6;
+  let y = m + 14;
+  setText(doc, 24, true); doc.text(meta.title.toUpperCase(), L, y);
+  y += 8; setText(doc, 12, false); doc.text(`Cardboard cube wrap / ${plan.paperName} printing and assembly`, L, y);
+  const S = plan.sizeMm, inches = S / 25.4;
+  const facts = [
+    `Finished face: ${fmt(S)} x ${fmt(S)} mm (${fmt(inches)} in)`,
+    `Wrap tabs: ${fmt(plan.wrap)} mm on all four edges`,
+    `Sheets per face: ${plan.cols} across x ${plan.rows} down, ${fmt(plan.overlap)} mm overlap`,
+    `Paper: ${plan.paperName} ${plan.orient}, ${plan.totalSheets} sheets + this guide`,
+  ];
+  let netW = 0;
+  if (meta.netPng) {
+    netW = Math.min(64, (R - L) * 0.32);
+    doc.addImage(meta.netPng, "PNG", R - netW, m + 6, netW, netW * 4 / 3);
+  }
+  y += 10; setText(doc, 10.5, true);
+  for (const f of facts) { doc.text(f, L, y); y += 5.5; }
+  const textW = R - L;
+  const steps = [
+    ["1  CHECK THE BOX", [
+      `This file assumes every face measures ${fmt(S)} x ${fmt(S)} mm. Measure the box before printing the full set.`,
+    ]],
+    ["2  PRINT AT ACTUAL SIZE", [
+      `Use ${plan.paperName} paper, ${plan.orient}, single-sided. Choose Actual size / 100% and turn off Fit or Shrink.`,
+      "Print one sheet first and check that its 100 mm line measures 100 mm.",
+    ]],
+    ["3  PAGES", [pageRanges + "."]],
+    ["4  TRIM AND JOIN EACH FACE", [
+      "Each sheet is named by column letter and row number: A1 is top-left. Trim every sheet at its corner marks.",
+      `Brackets outside the artwork mark the ${fmt(plan.overlap)} mm bands neighbouring sheets share.`,
+      "Start with A1. Each later sheet slides under the earlier one: B1 goes under A1, A2 under A1, B2 under B1 and A2.",
+      `Line up the shared texture and tape the back. A joined face is ${fmt(plan.T)} x ${fmt(plan.T)} mm with its tabs.`,
+    ]],
+    ["5  FOLD AND ATTACH", [
+      "Cut away the blank corner squares marked CUT. Keep the textured tabs.",
+      `Fold at the dashed ticks so the face itself stays ${fmt(S)} x ${fmt(S)} mm.`,
+      "Side faces print with their top edge up. Left and right are as seen when facing the front.",
+      "Fold the tabs onto neighbouring faces and cover them with the next panel. Add the top last.",
+      "Trim any tab that would cover a face you have already finished.",
+    ]],
+  ];
+  y += 4;
+  for (const [title, lines] of steps) {
+    y += 5; setText(doc, 11.5, true); doc.text(title, L, y); y += 5.5;
+    setText(doc, 9.5, false);
+    for (const line of lines) {
+      const wrapped = doc.splitTextToSize(line, y < m + 6 + netW * 4 / 3 + 4 ? textW - netW - 6 : textW);
+      doc.text(wrapped, L, y); y += wrapped.length * 4.6;
+    }
+  }
+  scaleBar(doc, L, ph - m - 12, 100);
+}
+
+function bracket(doc, a, b, fixed, vertical, label) {
+  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.4);
+  setText(doc, 6.5, true);
+  if (!vertical) { // band along x, drawn above the artwork at y=fixed
+    doc.line(a, fixed, b, fixed); doc.line(a, fixed - 1, a, fixed + 2); doc.line(b, fixed - 1, b, fixed + 2);
+    doc.text(label, (a + b) / 2, fixed - 1.8, { align: "center" });
+  } else { // band along y, drawn left of the artwork at x=fixed
+    doc.line(fixed, a, fixed, b); doc.line(fixed - 1, a, fixed + 2, a); doc.line(fixed - 1, b, fixed + 2, b);
+    textUp(doc, label, fixed - 1.8, (a + b) / 2);
+  }
+}
+
+function sheetPage(doc, face, faceName, col, row, plan, meta, pageNo, totalPages) {
+  const { pageW: pw, pageH: ph, margin: m, tw, th, overlap: O, sizeMm: S, wrap: w, cols, rows } = plan;
+  const X0 = (pw - tw) / 2, Y0 = m + HEAD + GUT;
+  const win = { x0: col * plan.stepX, y0: row * plan.stepY };
+  win.x1 = win.x0 + tw; win.y1 = win.y0 + th;
+  const toPage = { x: v => X0 + v - win.x0, y: v => Y0 + v - win.y0 };
+  const id = sheetId(col, row);
+
+  // Header: face, sheet, where it sits, which edge is up.
+  setText(doc, 16, true);
+  doc.text(`${faceName.toUpperCase()}${faceName === "bottom" ? " (OPTIONAL)" : ""}  /  ${id}`, m + 4, m + 8);
+  setText(doc, 8, false);
+  doc.text(`${meta.title} / ${fmt(S)} mm face + ${fmt(w)} mm tabs / ${plan.paperName} ${plan.orient} / print at 100%`, m + 4, m + 14);
+  const cell = 4, mapX = pw - m - 4 - cols * cell, mapY = m + 3;
+  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.25);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    doc.setFillColor(32, 43, 51);
+    doc.rect(mapX + c * cell, mapY + r * cell, cell, cell, c === col && r === row ? "FD" : "S");
+  }
+  const note = EDGE_NOTE[faceName] || "TOP EDGE";
+  setText(doc, 7.5, true);
+  const noteX = mapX - 4;
+  doc.text(`${note} UP`, noteX, m + 8, { align: "right" });
+  const tx = noteX - doc.getTextWidth(`${note} UP`) - 4;
+  doc.setFillColor(32, 43, 51); doc.triangle(tx - 2, m + 8, tx + 2, m + 8, tx, m + 4.5, "F");
+
+  drawFaceArt(doc, face, plan, win, toPage);
+
+  // Blank corners: solid cut lines and a CUT label.
+  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.35);
+  if (w > 0) for (const cx of [0, w + S]) for (const cy of [0, w + S]) {
+    const x0 = Math.max(cx, win.x0), x1 = Math.min(cx + w, win.x1), y0 = Math.max(cy, win.y0), y1 = Math.min(cy + w, win.y1);
+    if (x1 - x0 <= 0 || y1 - y0 <= 0) continue;
+    const fx = cx === 0 ? w : w + S, fy = cy === 0 ? w : w + S;
+    if (fx >= win.x0 && fx <= win.x1) doc.line(toPage.x(fx), toPage.y(y0), toPage.x(fx), toPage.y(y1));
+    if (fy >= win.y0 && fy <= win.y1) doc.line(toPage.x(x0), toPage.y(fy), toPage.x(x1), toPage.y(fy));
+    if (x1 - x0 > 8 && y1 - y0 > 5) { setText(doc, 7, true); doc.text("CUT", toPage.x((x0 + x1) / 2), toPage.y((y0 + y1) / 2) + 1, { align: "center" }); }
+  }
+
+  // Fold ticks in the gutter where each fold line crosses this sheet.
+  doc.setLineDashPattern([1.5, 1], 0); doc.setLineWidth(0.35);
+  for (const f of [w, w + S]) {
+    if (f > win.x0 && f < win.x1) { const x = toPage.x(f); doc.line(x, Y0 + th + 2, x, Y0 + th + 9); doc.line(x, Y0 - 2, x, Y0 - 9); }
+    if (f > win.y0 && f < win.y1) { const y = toPage.y(f); doc.line(X0 + tw + 2, y, X0 + tw + 9, y); doc.line(X0 - 2, y, X0 - 9, y); }
+  }
+  doc.setLineDashPattern([], 0);
+
+  // Crop marks at the sheet corners.
+  doc.setLineWidth(0.3);
+  for (const [x, dx] of [[X0, -1], [X0 + tw, 1]]) for (const [y, dy] of [[Y0, -1], [Y0 + th, 1]]) {
+    doc.line(x + dx * 2, y, x + dx * 7, y); doc.line(x, y + dy * 2, x, y + dy * 7);
+  }
+
+  // Overlap bands shared with neighbouring sheets.
+  if (col > 0) bracket(doc, X0, X0 + O, Y0 - 4, false, `GOES UNDER ${sheetId(col - 1, row)}`);
+  if (col < cols - 1) bracket(doc, X0 + tw - O, X0 + tw, Y0 - 4, false, `${sheetId(col + 1, row)} GOES UNDER`);
+  if (row > 0) bracket(doc, Y0, Y0 + O, X0 - 4, true, `GOES UNDER ${sheetId(col, row - 1)}`);
+  if (row < rows - 1) bracket(doc, Y0 + th - O, Y0 + th, X0 - 4, true, `${sheetId(col, row + 1)} GOES UNDER`);
+
+  // Footer.
+  scaleBar(doc, m + 4, ph - m - 9, pw - 2 * m > 190 ? 100 : 50);
+  setText(doc, 8, false);
+  doc.text(`Trim at the corner marks. Dashed ticks = fold. Keep the textured tabs.`, pw - m - 4, ph - m - 9, { align: "right" });
+  setText(doc, 8, true);
+  doc.text(`${pageNo} / ${totalPages}`, pw - m - 4, ph - m - 4, { align: "right" });
+}
+
+function buildPdf(JsPDF, faces, plan, meta) {
+  const fmtArr = [Math.min(plan.pageW, plan.pageH), Math.max(plan.pageW, plan.pageH)];
+  const o = plan.orient === "landscape" ? "l" : "p";
+  const doc = new JsPDF({ orientation: o, unit: "mm", format: fmtArr, compress: true });
+  doc.setProperties({ title: `${meta.title} - ${fmt(plan.sizeMm)} mm cube - ${plan.paperName} panels`, creator: "Block Wrap Printer" });
+  const totalPages = plan.totalSheets + 1;
+  let page = 2;
+  const ranges = plan.faces.map(f => {
+    const a = page; page += plan.perFace;
+    const label = f[0].toUpperCase() + f.slice(1) + (f === "bottom" ? " (optional)" : "");
+    return plan.perFace === 1 ? `${label} ${a}` : `${label} ${a}-${page - 1}`;
+  });
+  guidePage(doc, plan, meta, "Page 1 is this guide. " + ranges.join(", "));
+  page = 2;
+  for (const name of plan.faces)
+    for (let r = 0; r < plan.rows; r++)
+      for (let c = 0; c < plan.cols; c++) {
+        doc.addPage(fmtArr, o);
+        sheetPage(doc, faces[name], name, c, r, plan, meta, page++, totalPages);
+      }
+  return doc;
+}
+
+if (typeof module !== "undefined") module.exports = { PRESETS, PRESET_IMAGES, detectLayout, extractFaces, planLayout, buildPdf, rotateFace, readSquare, FACE_ORDER };
+</script>
+
+<script>
+/* ---------- Page UI ---------- */
+const $ = id => document.getElementById(id);
+const state = { img: null, source: "wither", wrapEdited: false };
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = im.naturalWidth; c.height = im.naturalHeight;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(im, 0, 0);
+      resolve(ctx.getImageData(0, 0, c.width, c.height));
+    };
+    im.onerror = () => reject(new Error("That file could not be read as an image."));
+    im.src = src;
+  });
+}
+
+function faceCanvas(face, scale, canvas) {
+  const c = canvas || document.createElement("canvas");
+  c.width = face.n * scale; c.height = face.n * scale;
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+  for (let j = 0; j < face.n; j++) for (let i = 0; i < face.n; i++) {
+    const k = (j * face.n + i) * 4;
+    if (face.px[k + 3] < 128) continue;
+    ctx.fillStyle = `rgb(${face.px[k]},${face.px[k + 1]},${face.px[k + 2]})`;
+    ctx.fillRect(i * scale, j * scale, scale, scale);
+  }
+  return c;
+}
+
+const sizeToMm = (v, unit) => v * ({ mm: 1, cm: 10, in: 25.4 })[unit];
+const num = id => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
+const autoWrap = mm => Math.round(Math.min(25, mm / 8) * 10) / 10;
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+async function buildPresetButtons() {
+  for (const [key, p] of Object.entries(PRESETS)) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "preset"; b.dataset.key = key;
+    const img = await loadImage(PRESET_IMAGES[p.image]);
+    const { faces } = extractFaces(img, p.layout, { uniform: p.uniform });
+    const c = faceCanvas(faces.front, Math.max(1, Math.round(40 / faces.front.n)));
+    b.append(c, document.createTextNode(p.label));
+    b.addEventListener("click", () => usePreset(key));
+    $("presets").append(b);
+  }
+}
+
+async function usePreset(key) {
+  const p = PRESETS[key];
+  state.source = key;
+  state.img = await loadImage(PRESET_IMAGES[p.image]);
+  $("layout").value = p.layout; $("uniform").value = p.uniform; $("title").value = p.title;
+  $("unit").value = "mm"; $("unit").dataset.prev = "mm"; $("size").value = p.sizeMm;
+  state.wrapEdited = false; $("wrap").value = autoWrap(p.sizeMm);
+  $("notice").hidden = true;
+  update();
+}
+
+async function useFile(file) {
+  if (!file) return;
+  try {
+    const url = URL.createObjectURL(file);
+    state.img = await loadImage(url);
+    URL.revokeObjectURL(url);
+  } catch (e) { showNotice(e.message); return; }
+  state.source = "upload";
+  $("title").value = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 40);
+  $("uniform").value = "";
+  const guess = detectLayout(state.img);
+  if (guess) { $("layout").value = guess; $("notice").hidden = true; }
+  else showNotice(`This image is ${state.img.width} × ${state.img.height}, which doesn't match a skin, an unfolded cube or a square tile. Choose how to read it below.`);
+  update();
+}
+
+function showNotice(msg) { $("notice").textContent = msg; $("notice").hidden = false; }
+
+let current = null;
+function update() {
+  document.querySelectorAll(".preset").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.key === state.source)));
+  const layout = $("layout").value;
+  $("hatRow").hidden = layout !== "skin";
+  $("uniformRow").hidden = layout === "tile";
+  const sizeVal = num("size");
+  const sizeMm = sizeVal && sizeVal > 0 ? sizeToMm(sizeVal, $("unit").value) : null;
+  if (!state.wrapEdited && sizeMm) $("wrap").value = autoWrap(sizeMm);
+  if (!state.img) return;
+  const ex = extractFaces(state.img, layout, { hat: $("hat").checked, uniform: $("uniform").value });
+  if (ex.error) { showNotice(ex.error); current = null; $("makeBtn").disabled = true; return; }
+  if (state.source !== "upload" || detectLayout(state.img)) $("notice").hidden = true;
+  if (!sizeMm) { $("status").textContent = "Enter the face size."; $("makeBtn").disabled = true; return; }
+  const overlapVal = num("overlap");
+  const plan = planLayout({
+    sizeMm, wrap: Math.max(0, num("wrap") ?? autoWrap(sizeMm)), paper: $("paper").value,
+    margin: Math.max(0, num("margin") ?? 8), overlap: overlapVal && overlapVal > 0 ? overlapVal : null,
+    includeBottom: $("bottom").checked,
+  });
+  renderCube(ex.faces);
+  renderNet(ex.faces);
+  if (plan.error) { showNotice(plan.error); current = null; $("makeBtn").disabled = true; $("stats").innerHTML = ""; return; }
+  current = { faces: ex.faces, plan };
+  $("makeBtn").disabled = false;
+  $("status").textContent = "";
+  renderStats(plan, ex.faces.front.n);
+  renderPlan(ex.faces.front, plan);
+}
+
+function renderStats(plan, n) {
+  const stats = [
+    [`${plan.cols} × ${plan.rows}`, "sheets per face"],
+    [plan.totalSheets + 1, `${plan.paperName} pages, with guide`],
+    [`${fmt(plan.overlap)} mm`, "overlap between sheets"],
+    [`${fmt(plan.sizeMm / n)} mm`, `per pixel (${n} × ${n} face)`],
+  ];
+  $("stats").innerHTML = "";
+  for (const [b, s] of stats) {
+    const d = document.createElement("div"); d.className = "stat";
+    const bb = document.createElement("b"); bb.textContent = b;
+    const ss = document.createElement("span"); ss.textContent = s;
+    d.append(bb, ss); $("stats").append(d);
+  }
+  const facts = [
+    `<b>${fmt(plan.sizeMm)} mm</b> face (${fmt(plan.sizeMm / 25.4)} in) with <b>${fmt(plan.wrap)} mm</b> tabs makes each joined panel <b>${fmt(plan.T)} mm</b> square.`,
+    `Each sheet's artwork is <b>${fmt(plan.tw)} × ${fmt(plan.th)} mm</b>, printed ${plan.orient}.`,
+    plan.faces.includes("bottom") ? "The bottom face is included. Skip its pages for an open-bottom box." : "The bottom face is left out.",
+  ];
+  $("facts").innerHTML = facts.map(f => `<li>${f}</li>`).join("");
+}
+
+function renderCube(faces) {
+  const cube = $("cube");
+  cube.innerHTML = "";
+  for (const name of FACE_ORDER) {
+    const c = faceCanvas(faces[name], 1);
+    c.className = "f-" + name;
+    cube.append(c);
+  }
+  applyRotation();
+}
+
+let rot = { x: -24, y: -36 };
+function applyRotation() { $("cube").style.transform = `rotateX(${rot.x}deg) rotateY(${rot.y}deg)`; }
+function enableDrag() {
+  const st = $("cubeStage");
+  let start = null;
+  st.addEventListener("pointerdown", e => { start = { x: e.clientX, y: e.clientY, r: { ...rot } }; st.setPointerCapture(e.pointerId); });
+  st.addEventListener("pointermove", e => {
+    if (!start) return;
+    rot.y = start.r.y + (e.clientX - start.x) * 0.5;
+    rot.x = Math.max(-80, Math.min(80, start.r.x - (e.clientY - start.y) * 0.5));
+    applyRotation();
+  });
+  const end = () => { start = null; };
+  st.addEventListener("pointerup", end); st.addEventListener("pointercancel", end);
+}
+
+function netImage(faces, scale, labels) {
+  const n = faces.front.n, s = n * scale, gap = Math.max(1, Math.round(scale / 4));
+  const c = document.createElement("canvas");
+  c.width = 3 * s + 2 * gap; c.height = 4 * s + 3 * gap;
+  const ctx = c.getContext("2d");
+  // Same cross as an unfolded block texture: back above the top, front and bottom below.
+  const cells = { back: [1, 0, 2], left: [0, 1, 3], top: [1, 1, 0], right: [2, 1, 1], front: [1, 2, 0], bottom: [1, 3, 0] };
+  for (const [name, [cx, cy, turns]] of Object.entries(cells)) {
+    const fc = faceCanvas(rotateFace(faces[name], (4 - turns) % 4), scale);
+    const x = cx * (s + gap), y = cy * (s + gap);
+    ctx.drawImage(fc, x, y);
+    if (labels) {
+      ctx.font = `600 ${Math.max(10, s / 10)}px ${cssVar("--font-body") || "sans-serif"}`;
+      const tw = ctx.measureText(name).width;
+      ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(x + 4, y + 4, tw + 8, s / 10 + 8);
+      ctx.fillStyle = "#fff"; ctx.textBaseline = "top"; ctx.fillText(name, x + 8, y + 7);
+    }
+  }
+  return c;
+}
+
+function renderNet(faces) {
+  const scale = Math.max(1, Math.floor(100 / faces.front.n));
+  const img = netImage(faces, scale, true);
+  const c = $("net");
+  c.width = img.width; c.height = img.height;
+  c.getContext("2d").drawImage(img, 0, 0);
+}
+
+function renderPlan(face, plan) {
+  const c = $("plan"), ctx = c.getContext("2d");
+  const px = 560 / (plan.T + 20), off = 10 * px;
+  c.width = c.height = 560;
+  ctx.clearRect(0, 0, 560, 560);
+  const { sizeMm: S, wrap: w, T } = plan, n = face.n, p = S / n;
+  const toPx = v => off + v * px;
+  // Face art with tabs, corners left blank.
+  for (let ky = 0; ky <= n + 1; ky++) for (let kx = 0; kx <= n + 1; kx++) {
+    if ((kx === 0 || kx === n + 1) && (ky === 0 || ky === n + 1)) continue;
+    const ti = Math.min(n - 1, Math.max(0, kx - 1)), tj = Math.min(n - 1, Math.max(0, ky - 1));
+    const k = (tj * n + ti) * 4;
+    if (face.px[k + 3] < 128) continue;
+    const x0 = kx === 0 ? 0 : kx === n + 1 ? w + S : w + (kx - 1) * p, x1 = kx === 0 ? w : kx === n + 1 ? T : w + kx * p;
+    const y0 = ky === 0 ? 0 : ky === n + 1 ? w + S : w + (ky - 1) * p, y1 = ky === 0 ? w : ky === n + 1 ? T : w + ky * p;
+    ctx.fillStyle = `rgb(${face.px[k]},${face.px[k + 1]},${face.px[k + 2]})`;
+    ctx.fillRect(Math.floor(toPx(x0)), Math.floor(toPx(y0)), Math.ceil((x1 - x0) * px) + 1, Math.ceil((y1 - y0) * px) + 1);
+  }
+  // Tab area tint and fold lines.
+  ctx.fillStyle = "rgba(255,255,255,0.28)";
+  ctx.fillRect(toPx(w), toPx(0), S * px, w * px); ctx.fillRect(toPx(w), toPx(w + S), S * px, w * px);
+  ctx.fillRect(toPx(0), toPx(w), w * px, S * px); ctx.fillRect(toPx(w + S), toPx(w), w * px, S * px);
+  ctx.setLineDash([5, 4]); ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.5;
+  ctx.strokeRect(toPx(w), toPx(w), S * px, S * px);
+  ctx.setLineDash([]);
+  // Overlap bands and sheet outlines.
+  const accent = cssVar("--accent") || "#c8460f";
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  for (let col = 1; col < plan.cols; col++) ctx.fillRect(toPx(col * plan.stepX), toPx(0), plan.overlap * px, T * px);
+  for (let row = 1; row < plan.rows; row++) ctx.fillRect(toPx(0), toPx(row * plan.stepY), T * px, plan.overlap * px);
+  ctx.strokeStyle = accent; ctx.lineWidth = 2;
+  ctx.font = `600 14px ${cssVar("--font-data") || "monospace"}`; ctx.textBaseline = "top";
+  for (let row = 0; row < plan.rows; row++) for (let col = 0; col < plan.cols; col++) {
+    const x = toPx(col * plan.stepX), y = toPx(row * plan.stepY);
+    ctx.strokeRect(x + 1, y + 1, plan.tw * px - 2, plan.th * px - 2);
+    const label = sheetId(col, row), tw = ctx.measureText(label).width;
+    ctx.fillStyle = accent; ctx.fillRect(x + 6, y + 6, tw + 10, 22);
+    ctx.fillStyle = "#fff"; ctx.fillText(label, x + 11, y + 10);
+  }
+  $("planCaption").innerHTML = `<b>How one face splits across ${plan.perFace === 1 ? "one sheet" : plan.perFace + " sheets"}.</b> Dashed square = fold lines; lighter bands = tabs and overlaps; corners are cut away.`;
+}
+
+async function makePdf() {
+  if (!current) return;
+  const btn = $("makeBtn");
+  btn.disabled = true; $("status").textContent = "Building the PDF…";
+  try {
+    const { plan, faces } = current;
+    const title = ($("title").value || "Minecraft block").trim();
+    const netPng = netImage(faces, Math.max(4, Math.ceil(160 / faces.front.n)), false).toDataURL("image/png");
+    const doc = buildPdf(window.jspdf.jsPDF, faces, plan, { title, netPng });
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "block";
+    const filename = `${slug}-${plan.paper}-${fmt(plan.sizeMm)}mm.pdf`;
+    const blob = doc.output("blob");
+    const downloads = window.claude?.use ? await window.claude.use("downloads").catch(() => null) : null;
+    if (downloads) {
+      try { await downloads.save({ filename, data: blob }); $("status").textContent = `Saved ${filename}`; }
+      catch (e) { $("status").textContent = e?.code === "declined" ? "Save cancelled." : `Couldn't save the file (${e?.code || "error"}).`; }
+    } else {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = filename;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      $("status").textContent = `Downloaded ${filename}`;
+    }
+  } catch (e) {
+    console.error(e);
+    $("status").textContent = "Something went wrong building the PDF: " + e.message;
+  } finally { btn.disabled = false; }
+}
+
+function init() {
+  $("margin").value = 8;
+  $("controls").addEventListener("submit", e => e.preventDefault());
+  $("controls").addEventListener("input", e => {
+    if (e.target.id === "wrap") state.wrapEdited = $("wrap").value !== "";
+    if (e.target.id === "file") return;
+    update();
+  });
+  $("unit").addEventListener("change", e => {
+    // Keep the same physical size when switching units.
+    const prev = $("unit").dataset.prev || "mm", v = num("size");
+    if (v) $("size").value = fmt(sizeToMm(v, prev) / sizeToMm(1, e.target.value));
+    $("unit").dataset.prev = e.target.value;
+    update();
+  });
+  $("file").addEventListener("change", e => useFile(e.target.files[0]));
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("over")));
+  drop.addEventListener("drop", e => { e.preventDefault(); useFile(e.dataTransfer.files[0]); });
+  $("makeBtn").addEventListener("click", makePdf);
+  enableDrag();
+  buildPresetButtons().then(() => usePreset("wither"));
+}
+init();
+</script>

@@ -1,14 +1,39 @@
-# Wither Skeleton Halloween Head
+# Minecraft Block Wraps
 
-Printable paper panels for a child's Minecraft Wither Skeleton Halloween costume.
+Printable paper panels that wrap a cardboard cube as a Minecraft block or head.
+It started as a child's Wither Skeleton Halloween head. Wither stays the default;
+grass and dirt blocks are built in too.
 
-## Project brief
+## Block Wrap Printer (web tool)
 
-- An approximately 30 cm cube cardboard box has already been made for the head.
-- Create Minecraft-style Wither Skeleton textures to cover the box.
-- Prepare printable A3 sheets that can be cut out and attached to the cardboard.
+Open `web/index.html` in a browser. It's one self-contained file with no build step.
 
-## Print constraints
+1. Pick a preset (Wither head, Grass block, Dirt block) or upload a texture.
+   The tool recognises:
+   - **Creature skins** (64 × 32 or 64 × 64, or HD multiples). It uses the head
+     and, optionally, the hat layer.
+   - **Unfolded cubes** (a 3 × 4 cross like `assets/source/grass-block-net.png`).
+   - **Single square tiles**, which go on every side.
+
+   If it can't tell, it asks. Upscaled art is reduced back to its real pixel grid.
+2. Enter the face size in mm, cm or inches, and choose the paper (A3, A4, US Letter
+   or Tabloid).
+3. It works out the fewest sheets per face, the overlap (the widest that fits, up
+   to 40 mm, unless you set one), and the wrap tabs (25 mm by default, smaller on
+   small cubes).
+4. **Make the PDF** gives you a guide page plus labelled sheets (A1, B1, …) with
+   crop marks, overlap brackets, fold ticks and a 100 mm calibration line.
+
+Left and right are as seen when facing the front of the block.
+
+Examples: a 300 mm Wither head on A3 is 2 strips per face (the original layout).
+A 405 mm grass block on A3 is 2 × 2 sheets per face, 24 sheets plus the guide.
+
+## Python scripts (original Wither head)
+
+The scripts below still build the original fixed 300 mm Wither PDF.
+
+### Print constraints
 
 A3 paper measures 297 × 420 mm. A 300 × 300 mm face is slightly wider than
 the short side of an A3 sheet, even before allowing for printer margins.
