@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const html = fs.readFileSync(require('node:path').join(__dirname, '../index.html'), 'utf8');
 const start = html.indexOf('const PRESET_IMAGES');
 const context = vm.createContext({});
-vm.runInContext(html.slice(start, html.indexOf('</script>', start)) + '\nglobalThis.api = { guidePage, sheetPage, planLayout, buildPdf };', context);
-const { guidePage, sheetPage, planLayout, buildPdf } = context.api;
+vm.runInContext(html.slice(start, html.indexOf('</script>', start)) + '\nglobalThis.api = { guidePage, sheetPage, planLayout, buildPdf, fittedText };', context);
+const { guidePage, sheetPage, planLayout, buildPdf, fittedText } = context.api;
 class RecordingPdf {
   constructor() { this.pages = [[]]; this.size = 10; }
   addPage() { this.pages.push([]); }
@@ -37,7 +37,7 @@ test('30 by 30 sheet map stays inside reserved header', () => {
   const map = doc.pages[0].filter(x => x.type === 'rect').slice(0, 900);
   assert.equal(map.length, 900);
   assert.ok(map.every(r => r.y + r.h <= p.margin + 14.001));
-  const footer = doc.pages[0].find(x => x.type === 'text' && x.t.startsWith('Trim at'));
+  const footer = doc.pages[0].find(x => x.type === 'text' && x.t.startsWith('Join rows first'));
   assert.ok(footer.x - footer.width >= p.margin + 4 + 50);
 });
 test('PDF sheet numbering includes all guide continuation pages', () => {
@@ -47,4 +47,19 @@ test('PDF sheet numbering includes all guide continuation pages', () => {
   const guides = doc.pages.length - p.totalSheets;
   assert.ok(guides >= 2);
   assert.ok(doc.pages[guides].some(t => t.type === 'text' && t.t === `${guides + 1} / ${doc.pages.length}`));
+});
+
+test('text fitting measures long values logarithmically and preserves bounds', () => {
+  const doc = new RecordingPdf();
+  let measurements = 0;
+  const original = doc.getTextWidth.bind(doc);
+  doc.getTextWidth = t => { measurements++; return original(t); };
+  fittedText(doc, 'Long filename '.repeat(1000), 0, 10, 100, 10);
+  assert.ok(measurements < 25);
+  const text = doc.pages[0][0];
+  assert.ok(text.t.endsWith('...'));
+  assert.ok(text.width <= 100);
+  assert.ok(original(text.t.slice(0, -3) + 'L...') > 100);
+  fittedText(doc, 'Name', 0, 20, 0.1, 10);
+  assert.equal(doc.pages[0][1].t, '');
 });

@@ -58,7 +58,7 @@ test('incomplete measurements clear a previously printable plan', () => {
 });
 
 test('invalid print settings disable generation instead of silently changing values', () => {
-  for (const [id, value, message] of [['overlap', '1', /at least 5/], ['overlap', '-1', /at least 5/], ['margin', '26', /0 and 25/], ['margin', '-1', /0 and 25/], ['margin', '', /0 and 25/], ['wrap', '-2', /0 mm or more/], ['wrap', 'Infinity', /0 mm or more/]]) {
+  for (const [id, value, message] of [['overlap', '1', /between 5 and 40/], ['overlap', '-1', /between 5 and 40/], ['overlap', '173', /between 5 and 40/], ['overlap', '200', /between 5 and 40/], ['margin', '26', /0 and 25/], ['margin', '-1', /0 and 25/], ['margin', '', /0 and 25/], ['wrap', '-2', /0 mm or more/], ['wrap', 'Infinity', /0 mm or more/]]) {
     const elements = new Proxy({}, { get: (obj, key) => obj[key] ||= { value: '', checked: false, hidden: false, disabled: false, textContent: '', innerHTML: '', closest() { return this; } } });
     for (const [key, val] of Object.entries({ size: '0.5', layout: 'tile', margin: '8', overlap: '', wrap: '5' })) elements[key].value = val;
     elements[id].value = value;
@@ -84,4 +84,33 @@ test('unit conversion preserves small measurements through repeated cycles', () 
     assert.ok(Number(elements[id].value) > 0);
     assert.ok(Math.abs(Number(elements[id].value) - expected) < expected * 1e-9);
   }
+});
+
+test('unprintable and disproportionate repeat layouts reject before allocating bands', () => {
+  vm.runInContext(`
+    globalThis.originalFaceBands = faceBands;
+    faceBands = () => { throw new Error('bands must not be allocated'); };
+  `, context);
+  try {
+    for (const fit of ['tile', 'mirror']) for (const box of [{ W: 1, D: 1, H: 1e9 }, { W: 0.000001, D: 1000, H: 1000 }, { W: Infinity, D: 1, H: 1 }]) {
+      context.input = { box, n: 16, fit, wrap: 0, paper: 'a4', margin: 8, overlap: null, includeBottom: true };
+      const result = vm.runInContext('planLayout(input)', context);
+      assert.equal(typeof result.error, 'string');
+    }
+  } finally { vm.runInContext('faceBands = originalFaceBands;', context); }
+});
+
+test('UI rejects oversized plans before rendering previews', () => {
+  const elements = new Proxy({}, { get: (obj, id) => obj[id] ||= { value: '', checked: false, hidden: false, disabled: false, textContent: '', innerHTML: '', closest() { return this; } } });
+  for (const [id, value] of Object.entries({ size: '1000000000', layout: 'tile', margin: '8', overlap: '', wrap: '0', paper: 'a4' })) elements[id].value = value;
+  const ui = vm.createContext({ document: { getElementById: id => elements[id], querySelectorAll: () => [] } });
+  vm.runInContext(script.replace(/\binit\(\);\s*$/, '') + `
+    state.img = {}; state.wrapEdited = true;
+    extractFaces = () => ({ faces: { front: { n: 16 } } });
+    renderBox = renderNet = () => { throw new Error('invalid plans must not render'); };
+    update(); globalThis.result = current;
+  `, ui);
+  assert.equal(ui.result, null);
+  assert.equal(elements.makeBtn.disabled, true);
+  assert.match(elements.status.textContent, /does not fit/);
 });
