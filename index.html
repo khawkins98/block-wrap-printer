@@ -912,6 +912,7 @@ async function buildPresetButtons() {
     const { faces } = extractFaces(img, p.layout, { uniform: p.uniform });
     b.append(texelCanvas(faces.front, Math.max(1, Math.round(40 / faces.front.n))), document.createTextNode(p.label));
     b.addEventListener("click", () => usePreset(key));
+    b.setAttribute("aria-pressed", String(key === state.source));
     $("presets").append(b);
   }
 }
