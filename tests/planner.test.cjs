@@ -58,7 +58,7 @@ test('incomplete measurements clear a previously printable plan', () => {
 });
 
 test('invalid print settings disable generation instead of silently changing values', () => {
-  for (const [id, value, message] of [['overlap', '1', /at least 5/], ['overlap', '-1', /at least 5/], ['margin', '26', /0 and 25/], ['margin', '-1', /0 and 25/], ['margin', '', /0 and 25/], ['wrap', '-2', /0 mm or more/], ['wrap', 'Infinity', /0 mm or more/]]) {
+  for (const [id, value, message] of [['overlap', '1', /between 5 and 40/], ['overlap', '-1', /between 5 and 40/], ['overlap', '173', /between 5 and 40/], ['overlap', '200', /between 5 and 40/], ['margin', '26', /0 and 25/], ['margin', '-1', /0 and 25/], ['margin', '', /0 and 25/], ['wrap', '-2', /0 mm or more/], ['wrap', 'Infinity', /0 mm or more/]]) {
     const elements = new Proxy({}, { get: (obj, key) => obj[key] ||= { value: '', checked: false, hidden: false, disabled: false, textContent: '', innerHTML: '', closest() { return this; } } });
     for (const [key, val] of Object.entries({ size: '0.5', layout: 'tile', margin: '8', overlap: '', wrap: '5' })) elements[key].value = val;
     elements[id].value = value;

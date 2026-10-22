@@ -207,7 +207,7 @@ figcaption b { color: var(--ink); font-weight: 600; }
         </label>
         <div class="row">
           <label class="field">Overlap (mm)
-            <input type="number" id="overlap" min="5" step="any" placeholder="auto" inputmode="decimal">
+            <input type="number" id="overlap" min="5" max="40" step="any" placeholder="auto" inputmode="decimal">
           </label>
           <label class="field">Printer margin (mm)
             <input type="number" id="margin" min="0" max="25" step="any" inputmode="decimal">
@@ -476,10 +476,12 @@ function planPanel(Tw, Th, paper, margin, overlap) {
 
 /** Plan every face of the box. box = { W, D, H } in mm; n = texels per face edge. */
 function planLayout({ box, n, fit, wrap, paper, margin, overlap, includeBottom }) {
+  if (overlap != null && (!Number.isFinite(overlap) || overlap < 5 || overlap > MAX_AUTO_OVERLAP)) {
+    return { error: "Overlap must be between 5 and 40 mm, or blank for automatic overlap." };
+  }
   if (!box || ![box.W, box.D, box.H].every(v => Number.isFinite(v) && v > 0) ||
       !Number.isInteger(n) || n <= 0 || !Number.isFinite(wrap) || wrap < 0 ||
-      !PAPERS[paper] || !Number.isFinite(margin) || margin < 0 || margin > 25 ||
-      (overlap != null && (!Number.isFinite(overlap) || overlap < 5))) {
+      !PAPERS[paper] || !Number.isFinite(margin) || margin < 0 || margin > 25) {
     return { error: "Use finite positive box measurements and valid print settings." };
   }
   const names = includeBottom ? FACE_ORDER : FACE_ORDER.filter(f => f !== "bottom");
@@ -549,8 +551,14 @@ function fittedText(doc, text, x, y, width, size, bold = false, options = {}) {
   setText(doc, size, bold);
   let value = String(text);
   if (doc.getTextWidth(value) > width) {
-    while (value.length && doc.getTextWidth(value + "...") > width) value = value.slice(0, -1);
-    value += "...";
+    const suffix = "...";
+    let low = 0, high = value.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (doc.getTextWidth(value.slice(0, mid) + suffix) <= width) low = mid;
+      else high = mid - 1;
+    }
+    value = doc.getTextWidth(suffix) <= width ? value.slice(0, low) + suffix : "";
   }
   doc.text(value, x, y, options);
 }
@@ -791,8 +799,10 @@ function buildPdf(JsPDF, faces, plan, meta) {
 
 /** A separate calibration download; its exercises never change the face plan. */
 function buildTestPdf(JsPDF, { paper, margin, overlap = 15, overlapLabel = "Practice overlap" }) {
+  if (!Number.isFinite(overlap) || overlap < 5 || overlap > MAX_AUTO_OVERLAP)
+    throw new Error("The test sheet needs overlap between 5 and 40 mm.");
   const P = PAPERS[paper], L = margin + 6, width = P ? P.w - 2 * margin - 12 : 0;
-  if (!P || !Number.isFinite(margin) || margin < 0 || margin > 25 || !Number.isFinite(overlap) || overlap < 5 || overlap >= width)
+  if (!P || !Number.isFinite(margin) || margin < 0 || margin > 25 || overlap >= width)
     throw new Error("The test sheet needs a valid paper, margin and overlap that fits inside the page.");
   const doc = new JsPDF({ orientation: "p", unit: "mm", format: [P.w, P.h], compress: true });
   doc.setProperties({ title: "Block Wrap Printer - print calibration", creator: "Block Wrap Printer" });
@@ -842,7 +852,7 @@ if (typeof module !== "undefined") module.exports = { PRESETS, PRESET_IMAGES, de
 <script>
 /* ---------- Page UI ---------- */
 const $ = id => document.getElementById(id);
-const state = { img: null, source: "wither", wrapEdited: false, unit: "mm" };
+const state = { img: null, source: "wither", wrapEdited: false, unit: "mm", imageRequest: 0 };
 const UNIT_MM = { mm: 1, cm: 10, in: 25.4 };
 const UNIT_LABEL = { mm: "mm", cm: "cm", in: "in" };
 
@@ -850,11 +860,17 @@ function loadImage(src) {
   return new Promise((resolve, reject) => {
     const im = new Image();
     im.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = im.naturalWidth; c.height = im.naturalHeight;
-      const ctx = c.getContext("2d");
-      ctx.drawImage(im, 0, 0);
-      resolve(ctx.getImageData(0, 0, c.width, c.height));
+      try {
+        const w = im.naturalWidth, h = im.naturalHeight;
+        if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0 || w * h > 16000000)
+          throw new Error("Choose an image with positive dimensions and at most 16 megapixels. Resize larger images before uploading.");
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        const ctx = c.getContext("2d");
+        if (!ctx) throw new Error("This image could not be read by the browser. Try a smaller PNG image.");
+        ctx.drawImage(im, 0, 0);
+        resolve(ctx.getImageData(0, 0, w, h));
+      } catch (e) { reject(e); }
     };
     im.onerror = () => reject(new Error("That file could not be read as an image."));
     im.src = src;
@@ -900,30 +916,54 @@ async function buildPresetButtons() {
   }
 }
 
-async function usePreset(key) {
-  const p = PRESETS[key];
-  state.source = key;
-  state.img = await loadImage(PRESET_IMAGES[p.image]);
-  $("layout").value = p.layout; $("uniform").value = p.uniform; $("title").value = p.title;
-  if (!isBox()) { $("size").value = fmt(p.sizeMm / UNIT_MM[state.unit]); state.wrapEdited = false; }
+function beginImageLoad() {
+  const request = ++state.imageRequest;
+  state.img = null; current = null;
+  $("makeBtn").disabled = true; $("testBtn").disabled = true;
+  $("stats").innerHTML = "";
   $("notice").hidden = true;
-  update();
+  $("status").textContent = "Loading image…";
+  return request;
+}
+
+function imageLoadFailed(request, error) {
+  if (request !== state.imageRequest) return;
+  state.img = null; current = null;
+  $("makeBtn").disabled = true; $("testBtn").disabled = true;
+  showNotice(error.message);
+  $("status").textContent = error.message;
+}
+
+async function usePreset(key) {
+  const request = beginImageLoad(), p = PRESETS[key];
+  try {
+    const img = await loadImage(PRESET_IMAGES[p.image]);
+    if (request !== state.imageRequest) return;
+    state.source = key; state.img = img;
+    $("layout").value = p.layout; $("uniform").value = p.uniform; $("title").value = p.title;
+    if (!isBox()) { $("size").value = Number((p.sizeMm / UNIT_MM[state.unit]).toPrecision(12)).toString(); state.wrapEdited = false; }
+    $("notice").hidden = true;
+    update();
+  } catch (e) { imageLoadFailed(request, e); }
 }
 
 async function useFile(file) {
   if (!file) return;
+  const request = beginImageLoad();
+  let url;
   try {
-    const url = URL.createObjectURL(file);
-    state.img = await loadImage(url);
-    URL.revokeObjectURL(url);
-  } catch (e) { showNotice(e.message); return; }
-  state.source = "upload";
-  $("title").value = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 40);
-  $("uniform").value = "";
-  const guess = detectLayout(state.img);
-  if (guess) { $("layout").value = guess; $("notice").hidden = true; }
-  else showNotice(`This image is ${state.img.width} × ${state.img.height}, which doesn't match a skin, an unfolded cube or a square tile. Choose how to read it below.`);
-  update();
+    url = URL.createObjectURL(file);
+    const img = await loadImage(url);
+    if (request !== state.imageRequest) return;
+    state.img = img; state.source = "upload";
+    $("title").value = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 40);
+    $("uniform").value = "";
+    const guess = detectLayout(img);
+    if (guess) { $("layout").value = guess; $("notice").hidden = true; }
+    else showNotice(`This image is ${img.width} × ${img.height}, which doesn't match a skin, an unfolded cube or a square tile. Choose how to read it below.`);
+    update();
+  } catch (e) { imageLoadFailed(request, e); }
+  finally { if (url) URL.revokeObjectURL(url); }
 }
 
 function showNotice(msg) { $("notice").textContent = msg; $("notice").hidden = false; }
@@ -995,7 +1035,7 @@ function update() {
   const overlapVal = overlapRaw === "" ? null : Number(overlapRaw);
   const wrapRaw = $("wrap").value.trim(), wrapVal = Number(wrapRaw);
   const marginRaw = $("margin").value.trim(), marginVal = Number(marginRaw);
-  if (overlapVal !== null && (!Number.isFinite(overlapVal) || overlapVal < 5)) return fail("Overlap must be at least 5 mm, or blank for automatic overlap.");
+  if (overlapVal !== null && (!Number.isFinite(overlapVal) || overlapVal < 5 || overlapVal > MAX_AUTO_OVERLAP)) return fail("Overlap must be between 5 and 40 mm, or blank for automatic overlap.");
   if (wrapRaw === "" || !Number.isFinite(wrapVal) || wrapVal < 0) return fail("Wrap tab width must be a finite number of 0 mm or more.");
   if (marginRaw === "" || !Number.isFinite(marginVal) || marginVal < 0 || marginVal > 25) return fail("Printer margin must be between 0 and 25 mm.");
   const plan = planLayout({
@@ -1496,7 +1536,8 @@ function init() {
   $("makeBtn").addEventListener("click", makePdf);
   $("testBtn").addEventListener("click", makeTestPdf);
   enableDrag();
-  buildPresetButtons().then(() => usePreset("wither"));
+  usePreset("wither");
+  buildPresetButtons().catch(e => console.error("Could not load preset previews:", e));
 }
 init();
 </script>

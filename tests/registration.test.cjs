@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const html = fs.readFileSync(require('node:path').join(__dirname, '../index.html'), 'utf8');
 const start = html.indexOf('const PRESET_IMAGES');
 const context = vm.createContext({});
-vm.runInContext(html.slice(start, html.indexOf('</script>', start)) + '\nglobalThis.api = { registrationMarks, drawRegistrationMarks };', context);
-const { registrationMarks, drawRegistrationMarks } = context.api;
+vm.runInContext(html.slice(start, html.indexOf('</script>', start)) + '\nglobalThis.api = { registrationMarks, drawRegistrationMarks, planLayout };', context);
+const { registrationMarks, drawRegistrationMarks, planLayout } = context.api;
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
 
 for (const count of [2, 3]) test(`${count} by ${count} seams agree on both sheets and retain outer row references`, () => {
@@ -77,5 +77,16 @@ test('cut-through-cross joins retain half overlap and cover four-way corners wit
         }
       }
     }
+  }
+});
+
+
+test('excessive overlap rejects colliding marks and incompatible landscape calibration plans', () => {
+  const settings = { n: 16, fit: 'stretch', wrap: 0, paper: 'a4', margin: 8, includeBottom: true };
+  for (const [box, overlap] of [[{ W: 175.5, D: 175.5, H: 1000 }, 173], [{ W: 400, D: 100, H: 100 }, 200]]) {
+    const plan = planLayout({ ...settings, box, overlap });
+    assert.match(plan.error, /between 5 and 40 mm/);
+    assert.equal(plan.faces, undefined);
+    assert.ok(planLayout({ ...settings, box, overlap: 40 }).faces);
   }
 });

@@ -31,7 +31,7 @@ test('calibration square is exactly 100 mm on both axes for all papers and margi
   }
 });
 test('seam samples preserve requested overlap and reject impossible settings', () => {
-  for (const overlap of [5, 15, 75, 130]) {
+  for (const overlap of [5, 15, 30, 40]) {
     const doc = buildTestPdf(Pdf, { paper: 'a4', margin: 25, overlap });
     assert.ok(doc.rects.filter(r => r.fill === 'FD').every(r => r.w === overlap));
     assert.equal(doc.lines.length, 13);
@@ -44,4 +44,12 @@ test('seam samples preserve requested overlap and reject impossible settings', (
     assert.ok(doc.texts.filter(t => t.t === 'TEST:C1R1').length === 4);
   }
   for (const opts of [{ paper: 'unknown', margin: 8 }, { paper: 'a4', margin: 26 }, { paper: 'a4', margin: 25, overlap: 200 }]) assert.throws(() => buildTestPdf(Pdf, opts), /test sheet needs/);
+});
+
+
+test('calibration enforces the same 5–40 mm overlap range as face planning', () => {
+  for (const overlap of [173, 200]) assert.throws(() => buildTestPdf(Pdf, { paper: 'a4', margin: 8, overlap }), /overlap between 5 and 40 mm/);
+  for (const paper of Object.keys(PAPERS)) for (const margin of [0, 8, 25]) {
+    assert.doesNotThrow(() => buildTestPdf(Pdf, { paper, margin, overlap: 40 }));
+  }
 });

@@ -38,6 +38,10 @@ marks. Cutting through the earlier sheet's crosses exposes half of each mark so
 you can align it with the next sheet underneath; this leaves half the labeled
 overlap for taping or gluing. Trim the outside borders after assembly.
 
+Manual overlap is limited to 5–40 mm so seam marks stay usable and the practice
+pieces fit on every paper size. Uploaded images must be at most 16 megapixels;
+resize larger images first.
+
 ## Running it
 
 Open `index.html` in a browser. That's it. There's no build step, and the PDF is
