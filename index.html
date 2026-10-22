@@ -160,7 +160,7 @@ figcaption b { color: var(--ink); font-weight: 600; }
         </div>
         <div class="row" id="cubeFields">
           <label class="field">Face size
-            <input type="number" id="size" min="1" step="any" inputmode="decimal">
+            <input type="number" id="size" min="0" step="any" inputmode="decimal">
           </label>
           <label class="field">Unit
             <select id="unit"><option value="mm">mm</option><option value="cm">cm</option><option value="in">inches</option></select>
@@ -168,9 +168,9 @@ figcaption b { color: var(--ink); font-weight: 600; }
         </div>
         <div class="group" id="boxFields" hidden>
           <div class="row3">
-            <label class="field">Length <input type="number" id="dimA" min="1" step="any" inputmode="decimal"></label>
-            <label class="field">Width <input type="number" id="dimB" min="1" step="any" inputmode="decimal"></label>
-            <label class="field">Height <input type="number" id="dimC" min="1" step="any" inputmode="decimal"></label>
+            <label class="field">Length <input type="number" id="dimA" min="0" step="any" inputmode="decimal"></label>
+            <label class="field">Width <input type="number" id="dimB" min="0" step="any" inputmode="decimal"></label>
+            <label class="field">Height <input type="number" id="dimC" min="0" step="any" inputmode="decimal"></label>
           </div>
           <span class="hint" id="boxUnitHint"></span>
           <label class="field">Top of the box
@@ -489,7 +489,11 @@ function planLayout({ box, n, fit, wrap, paper, margin, overlap, includeBottom }
     totalSheets: faces.reduce((s, f) => s + f.sheets, 0) };
 }
 
-const sheetId = (col, row) => String.fromCharCode(65 + col) + (row + 1);
+function sheetId(col, row) {
+  let label = "";
+  for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) label = String.fromCharCode(65 + (n - 1) % 26) + label;
+  return label + (row + 1);
+}
 const fmt = v => (Math.round(v * 10) / 10).toString();
 const EDGE_NOTE = { top: "BACK EDGE", bottom: "FRONT EDGE" };
 const boxText = b => `${fmt(b.W)} x ${fmt(b.D)} x ${fmt(b.H)} mm`;
@@ -527,6 +531,17 @@ function textUp(doc, str, x, yMid) { // reads bottom-to-top, centred on yMid
   doc.text(str, x, yMid + doc.getTextWidth(str) / 2, { angle: 90 });
 }
 
+// Fit a single line without allowing uploaded filenames to cover neighbouring content.
+function fittedText(doc, text, x, y, width, size, bold = false, options = {}) {
+  setText(doc, size, bold);
+  let value = String(text);
+  if (doc.getTextWidth(value) > width) {
+    while (value.length && doc.getTextWidth(value + "...") > width) value = value.slice(0, -1);
+    value += "...";
+  }
+  doc.text(value, x, y, options);
+}
+
 function scaleBar(doc, x, y, len) {
   doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.5);
   doc.line(x, y, x + len, y);
@@ -538,26 +553,31 @@ function scaleBar(doc, x, y, len) {
 function guidePage(doc, plan, meta, pageList) {
   const P = PAPERS[plan.paper], pw = P.w, ph = P.h, m = plan.margin;
   const L = m + 6, R = pw - m - 6;
-  let y = m + 14;
-  setText(doc, 24, true); doc.text(meta.title.toUpperCase(), L, y);
-  y += 8; setText(doc, 12, false);
-  doc.text(`Cardboard ${plan.cube ? "cube" : "box"} wrap / ${plan.paperName} printing and assembly`, L, y);
+  let y = m + 14, guidePages = 1;
+  fittedText(doc, meta.title.toUpperCase(), L, y, R - L, 24, true);
+  y += 8;
+  fittedText(doc, `Cardboard ${plan.cube ? "cube" : "box"} wrap / ${plan.paperName} printing and assembly`, L, y, R - L, 12);
   const b = plan.box, overlaps = [...new Set(plan.faces.filter(f => f.overlap).map(f => fmt(f.overlap)))];
   const facts = [
     plan.cube ? `Finished face: ${fmt(b.W)} x ${fmt(b.W)} mm (${fmt(b.W / 25.4)} in)`
       : `Box: ${fmt(b.W)} wide x ${fmt(b.D)} deep x ${fmt(b.H)} tall (mm)`,
     plan.cube ? `Wrap tabs: ${fmt(plan.wrap)} mm on all four edges` : `Pattern ${FIT_NAMES[plan.fit]} / wrap tabs ${fmt(plan.wrap)} mm`,
     overlaps.length ? `Overlap between sheets: ${overlaps.join(" / ")} mm` : "Each face fits on one sheet",
-    `Paper: ${plan.paperName}, ${plan.totalSheets} sheets + this guide`,
+    `Paper: ${plan.paperName}, ${plan.totalSheets} sheets + assembly guide`,
   ];
   let netW = 0, netH = 0;
+  const factsTop = y + 10;
   if (meta.netPng) {
     netW = Math.min(64, (R - L) * 0.32); netH = netW * meta.netAspect;
     if (netH > 90) { netW *= 90 / netH; netH = 90; }
-    doc.addImage(meta.netPng, "PNG", R - netW, m + 6, netW, netH);
+    doc.addImage(meta.netPng, "PNG", R - netW, factsTop - 4, netW, netH);
   }
   y += 10; setText(doc, 10.5, true);
-  for (const f of facts) { doc.text(f, L, y); y += 5.5; }
+  for (const f of facts) {
+    const lines = doc.splitTextToSize(f, R - L - (netW ? netW + 6 : 0));
+    doc.text(lines, L, y); y += lines.length * 5.5;
+  }
+  y = Math.max(y, factsTop - 4 + netH);
   const textW = R - L;
   const steps = [
     ["1  CHECK THE BOX", [
@@ -583,16 +603,29 @@ function guidePage(doc, plan, meta, pageList) {
       "Trim any tab that would cover a face you have already finished.",
     ]],
   ];
+  // Keep the calibration footer clear and flow instructions onto further guide pages.
+  const bottom = ph - m - 24;
+  const nextPage = () => {
+    scaleBar(doc, L, ph - m - 12, 100);
+    doc.addPage([pw, ph], "p"); guidePages++;
+    fittedText(doc, `${meta.title.toUpperCase()} / ASSEMBLY GUIDE (CONTINUED)`, L, m + 12, textW, 12, true);
+    y = m + 22;
+  };
   y += 4;
   for (const [title, lines] of steps) {
+    if (y + 16 > bottom) nextPage();
     y += 5; setText(doc, 11.5, true); doc.text(title, L, y); y += 5.5;
-    setText(doc, 9.5, false);
     for (const line of lines) {
-      const wrapped = doc.splitTextToSize(line, y < m + 10 + netH ? textW - netW - 6 : textW);
-      doc.text(wrapped, L, y); y += wrapped.length * 4.6;
+      setText(doc, 9.5, false);
+      const wrapped = doc.splitTextToSize(line, textW);
+      for (const part of wrapped) {
+        if (y > bottom) { nextPage(); setText(doc, 9.5, false); }
+        doc.text(part, L, y); y += 4.6;
+      }
     }
   }
   scaleBar(doc, L, ph - m - 12, 100);
+  return guidePages;
 }
 
 function bracket(doc, a, b, fixed, vertical, label) {
@@ -616,22 +649,22 @@ function sheetPage(doc, face, fp, col, row, plan, meta, pageNo, totalPages) {
   const toPage = { x: v => X0 + v - win.x0, y: v => Y0 + v - win.y0 };
   const id = sheetId(col, row);
 
-  // Header: face, sheet, where it sits, which edge is up.
-  setText(doc, 16, true);
-  doc.text(`${fp.name.toUpperCase()}${fp.name === "bottom" ? " (OPTIONAL)" : ""}  /  ${id}`, m + 4, m + 8);
-  setText(doc, 8, false);
+  // Reserve a fixed header area even for the largest supported grid.
+  const cell = Math.min(4, 12 / rows, 28 / cols);
+  const mapX = pw - m - 4 - cols * cell, mapY = m + 2;
+  const noteWidth = 35, headerRight = mapX - noteWidth - 5;
+  fittedText(doc, `${fp.name.toUpperCase()}${fp.name === "bottom" ? " (OPTIONAL)" : ""}  /  ${id}`, m + 4, m + 8, headerRight - m - 4, 16, true);
   const ovText = O ? ` / ${fmt(O)} mm overlap` : "";
-  doc.text(`${meta.title} / face ${fmt(fw)} x ${fmt(fh)} mm + ${fmt(w)} mm tabs${ovText} / ${plan.paperName} ${fp.orient} / print at 100%`, m + 4, m + 14);
-  const cell = 4, mapX = pw - m - 4 - cols * cell, mapY = m + 3;
-  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.25); doc.setFillColor(32, 43, 51);
+  fittedText(doc, `PRINT AT 100% / ${plan.paperName} ${fp.orient} / face ${fmt(fw)} x ${fmt(fh)} mm + ${fmt(w)} mm tabs${ovText} / ${meta.title}`, m + 4, m + 14, mapX - m - 8, 8);
+  doc.setDrawColor(32, 43, 51); doc.setLineWidth(Math.min(0.25, cell / 5)); doc.setFillColor(32, 43, 51);
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
     doc.rect(mapX + c * cell, mapY + r * cell, cell, cell, c === col && r === row ? "FD" : "S");
   const note = `${EDGE_NOTE[fp.name] || "TOP EDGE"} UP`;
   setText(doc, 7.5, true);
   const noteX = mapX - 4;
-  doc.text(note, noteX, m + 8, { align: "right" });
+  doc.text(note, noteX, m + 7, { align: "right" });
   const tx = noteX - doc.getTextWidth(note) - 4;
-  doc.setFillColor(32, 43, 51); doc.triangle(tx - 2, m + 8, tx + 2, m + 8, tx, m + 4.5, "F");
+  doc.setFillColor(32, 43, 51); doc.triangle(tx - 2, m + 7, tx + 2, m + 7, tx, m + 3.5, "F");
 
   drawFaceArt(doc, face, fp, win, toPage);
 
@@ -671,27 +704,37 @@ function sheetPage(doc, face, fp, col, row, plan, meta, pageNo, totalPages) {
   // Footer.
   scaleBar(doc, m + 4, ph - m - 9, pw - 2 * m > 190 ? 100 : 50);
   setText(doc, 8, false);
-  doc.text("Trim at the corner marks. Dashed ticks = fold. Keep the textured tabs.", pw - m - 4, ph - m - 9, { align: "right" });
+  fittedText(doc, "Trim at corner marks. Dashed ticks = fold. Keep textured tabs.", pw - m - 4, ph - m - 9, pw - 2 * m - 12 - (pw - 2 * m > 190 ? 100 : 50), 8, false, { align: "right" });
   setText(doc, 8, true);
   doc.text(`${pageNo} / ${totalPages}`, pw - m - 4, ph - m - 4, { align: "right" });
 }
 
 function buildPdf(JsPDF, faces, plan, meta) {
   const P = PAPERS[plan.paper], fmtArr = [P.w, P.h];
-  const doc = new JsPDF({ orientation: "p", unit: "mm", format: fmtArr, compress: true });
+  const makeDoc = () => new JsPDF({ orientation: "p", unit: "mm", format: fmtArr, compress: true });
+  const pageListFor = guideCount => {
+    let page = guideCount + 1;
+    const list = [guideCount === 1 ? "Page 1 is this guide." : `Pages 1-${guideCount} are this guide.`];
+    for (const fp of plan.faces) {
+      const a = page; page += fp.sheets;
+      const label = fp.name[0].toUpperCase() + fp.name.slice(1) + (fp.name === "bottom" ? " (optional)" : "");
+      const pages = fp.sheets === 1 ? `page ${a}` : `pages ${a}-${page - 1}`;
+      list.push(`${label}: ${pages}, ${fp.cols} x ${fp.rows} sheets, face ${fmt(fp.w)} x ${fmt(fp.h)} mm.`);
+    }
+    return list;
+  };
+  // Measure the guide first so printed page ranges include continuation pages.
+  let guideCount = guidePage(makeDoc(), plan, meta, pageListFor(1));
+  let doc = makeDoc();
+  let actual = guidePage(doc, plan, meta, pageListFor(guideCount));
+  if (actual !== guideCount) {
+    guideCount = actual; doc = makeDoc();
+    actual = guidePage(doc, plan, meta, pageListFor(guideCount));
+  }
   const what = plan.cube ? `${fmt(plan.box.W)} mm cube` : boxText(plan.box) + " box";
   doc.setProperties({ title: `${meta.title} - ${what} - ${plan.paperName} panels`, creator: "Block Wrap Printer" });
-  const totalPages = plan.totalSheets + 1;
-  let page = 2;
-  const pageList = ["Page 1 is this guide."];
-  for (const fp of plan.faces) {
-    const a = page; page += fp.sheets;
-    const label = fp.name[0].toUpperCase() + fp.name.slice(1) + (fp.name === "bottom" ? " (optional)" : "");
-    const pages = fp.sheets === 1 ? `page ${a}` : `pages ${a}-${page - 1}`;
-    pageList.push(`${label}: ${pages}, ${fp.cols} x ${fp.rows} sheets, face ${fmt(fp.w)} x ${fmt(fp.h)} mm.`);
-  }
-  guidePage(doc, plan, meta, pageList);
-  page = 2;
+  const totalPages = plan.totalSheets + actual;
+  let page = actual + 1;
   for (const fp of plan.faces)
     for (let r = 0; r < fp.rows; r++)
       for (let c = 0; c < fp.cols; c++) {
@@ -747,7 +790,7 @@ function texelCanvas(face, scale) {
   return paintFace(face, fb, scale);
 }
 
-const num = id => { const v = parseFloat($(id).value); return Number.isFinite(v) && v > 0 ? v : null; };
+const num = id => { const raw = $(id).value.trim(), v = Number(raw); return raw !== "" && Number.isFinite(v) && v > 0 ? v : null; };
 const toMm = v => v * UNIT_MM[state.unit];
 const autoWrap = mm => Math.round(Math.min(25, mm / 8) * 10) / 10;
 const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -826,6 +869,9 @@ function readBox() {
 
 let current = null;
 function update() {
+  // Never leave a previous printable plan active while inputs are invalid or incomplete.
+  current = null;
+  $("makeBtn").disabled = true;
   document.querySelectorAll(".preset").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.key === state.source)));
   const layout = $("layout").value;
   $("hatRow").hidden = layout !== "skin";
@@ -841,21 +887,27 @@ function update() {
   if (!state.wrapEdited && box) $("wrap").value = autoWrap(Math.min(box.W, box.D, box.H));
   if (!state.img) return;
   const ex = extractFaces(state.img, layout, { hat: $("hat").checked, uniform: $("uniform").value });
-  const fail = msg => { showNotice(msg); current = null; $("makeBtn").disabled = true; };
+  const fail = msg => { showNotice(msg); $("status").textContent = msg; $("stats").innerHTML = ""; current = null; $("makeBtn").disabled = true; };
   if (ex.error) return fail(ex.error);
   if (state.source !== "upload" || detectLayout(state.img)) $("notice").hidden = true;
-  if (!box) { $("status").textContent = isBox() ? "Enter all three box measurements." : "Enter the face size."; $("makeBtn").disabled = true; return; }
+  if (!box) return fail(isBox() ? "Enter three finite box measurements greater than zero." : "Enter a finite face size greater than zero.");
+  if (!Object.values(box).every(v => Number.isFinite(v) && v > 0)) return fail("The converted box measurements are too large.");
   const fit = isBox() ? $("fit").value : "stretch";
   const n = ex.faces.front.n;
   const pixel = Math.min(box.W, box.D, box.H) / n;
   $("fitHint").textContent = fit === "stretch"
     ? "Pixels stretch into rectangles so each face shows the whole texture once."
     : `Square ${fmt(pixel)} mm pixels everywhere, so the texture fits the shortest edge once and repeats along longer ones.`;
-  const overlapVal = num("overlap");
-  const wrapVal = parseFloat($("wrap").value);
+  const overlapRaw = $("overlap").value.trim();
+  const overlapVal = overlapRaw === "" ? null : Number(overlapRaw);
+  const wrapRaw = $("wrap").value.trim(), wrapVal = Number(wrapRaw);
+  const marginRaw = $("margin").value.trim(), marginVal = Number(marginRaw);
+  if (overlapVal !== null && (!Number.isFinite(overlapVal) || overlapVal < 5)) return fail("Overlap must be at least 5 mm, or blank for automatic overlap.");
+  if (wrapRaw === "" || !Number.isFinite(wrapVal) || wrapVal < 0) return fail("Wrap tab width must be a finite number of 0 mm or more.");
+  if (marginRaw === "" || !Number.isFinite(marginVal) || marginVal < 0 || marginVal > 25) return fail("Printer margin must be between 0 and 25 mm.");
   const plan = planLayout({
-    box, n, fit, wrap: Number.isFinite(wrapVal) && wrapVal >= 0 ? wrapVal : autoWrap(Math.min(box.W, box.D, box.H)),
-    paper: $("paper").value, margin: Math.max(0, parseFloat($("margin").value) || 0),
+    box, n, fit, wrap: wrapVal,
+    paper: $("paper").value, margin: marginVal,
     overlap: overlapVal, includeBottom: $("bottom").checked,
   });
   renderBox(ex.faces, box, n, fit);
@@ -873,7 +925,7 @@ function renderStats(plan, pixel) {
   const b = plan.box, f = plan.faces[0];
   const stats = [
     [plan.cube ? `${fmt(b.W)} mm` : `${fmt(b.W)}×${fmt(b.D)}×${fmt(b.H)}`, plan.cube ? "cube face" : "box mm (w × d × h)"],
-    [plan.totalSheets + 1, `${plan.paperName} pages, with guide`],
+    [plan.totalSheets, `${plan.paperName} panel sheets + guide`],
     [f.overlap ? `${fmt(f.overlap)} mm` : "none", "overlap on the front"],
     plan.fit === "stretch" && !plan.cube
       ? [`${fmt(f.w / plan.n)}×${fmt(f.h / plan.n)}`, "front pixel, mm"]
@@ -1295,13 +1347,13 @@ async function makePdf() {
   } catch (e) {
     console.error(e);
     $("status").textContent = "Something went wrong building the PDF: " + e.message;
-  } finally { btn.disabled = false; }
+  } finally { btn.disabled = !current; }
 }
 
 function convertUnits(next) {
   for (const id of ["size", "dimA", "dimB", "dimC"]) {
     const v = num(id);
-    if (v) $(id).value = fmt(v * UNIT_MM[state.unit] / UNIT_MM[next]);
+    if (v) $(id).value = Number((v * UNIT_MM[state.unit] / UNIT_MM[next]).toPrecision(12)).toString();
   }
   state.unit = next;
 }
