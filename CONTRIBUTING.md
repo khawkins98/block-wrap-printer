@@ -19,6 +19,13 @@ Block Wrap Printer is a single-file, zero-build web application:
 
 ---
 
+## Regression checks
+
+Run `node --test tests/*.test.cjs` with Node.js 18 or newer. These checks cover
+print geometry, input validation, unit conversion, and PDF layout without adding
+a build step or runtime dependencies. Also visually inspect generated PDFs: the
+layout tests use a recording PDF implementation and do not replace a render check.
+
 ## Commit Guidelines: Conventional Commits
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for all git commit messages. This helps keep the project history readable, consistent, and structured.
