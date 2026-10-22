@@ -24,11 +24,19 @@ Hopefully somebody else finds it useful.
   pick which side is the top. The texture can be stretched to fit, repeated, or
   repeated with mirroring.
 - Splits each face across A3, A4, US Letter or Tabloid paper. Each sheet has
-  overlap guides, fold marks and wrap tabs.
+  matching seam marks, fold marks and wrap tabs.
+- Offers a separate test sheet with a 100 × 100 mm calibration square and
+  practice seam pieces using your planned overlap.
 - Starts the PDF with a guide page that explains printing and assembly.
 
-Print at 100% (turn off "fit to page"). Check the scale line on the first sheet
-before you print the rest.
+Print at 100% (turn off "fit to page"). Use **Print a test sheet** first and check
+both dimensions of the calibration square before printing the panels.
+
+Follow the PDF guide when joining sheets: assemble horizontal rows first, then
+join the rows. Keep the paper gutters until you have aligned the matching seam
+marks. Cutting through the earlier sheet's crosses exposes half of each mark so
+you can align it with the next sheet underneath; this leaves half the labeled
+overlap for taping or gluing. Trim the outside borders after assembly.
 
 ## Running it
 

@@ -248,6 +248,7 @@ figcaption b { color: var(--ink); font-weight: 600; }
       </figure>
       <div class="make">
         <button class="btn" type="button" id="makeBtn">Make the PDF</button>
+        <button class="btn" type="button" id="testBtn">Print a test sheet</button>
         <span id="status"></span>
       </div>
       <ul class="facts" id="facts"></ul>
@@ -475,13 +476,25 @@ function planPanel(Tw, Th, paper, margin, overlap) {
 
 /** Plan every face of the box. box = { W, D, H } in mm; n = texels per face edge. */
 function planLayout({ box, n, fit, wrap, paper, margin, overlap, includeBottom }) {
+  if (!box || ![box.W, box.D, box.H].every(v => Number.isFinite(v) && v > 0) ||
+      !Number.isInteger(n) || n <= 0 || !Number.isFinite(wrap) || wrap < 0 ||
+      !PAPERS[paper] || !Number.isFinite(margin) || margin < 0 || margin > 25 ||
+      (overlap != null && (!Number.isFinite(overlap) || overlap < 5))) {
+    return { error: "Use finite positive box measurements and valid print settings." };
+  }
   const names = includeBottom ? FACE_ORDER : FACE_ORDER.filter(f => f !== "bottom");
+  const sizes = faceSizes(box), pixel = Math.min(box.W, box.D, box.H) / n;
   const faces = [];
   for (const name of names) {
-    const bands = faceBands(name, box, n, fit, wrap);
-    const Tw = bands.w + 2 * wrap, Th = bands.h + 2 * wrap;
+    const [w, h] = sizes[name];
+    const Tw = w + 2 * wrap, Th = h + 2 * wrap;
     const grid = planPanel(Tw, Th, paper, margin, overlap);
     if (!grid) return { error: `The ${name} face does not fit on this paper. Try a smaller margin, a smaller overlap or a larger paper size.` };
+    // Reject disproportionate repeats before allocating texel bands or rendering their cross product.
+    if (fit !== "stretch" && (Math.max(w, h) / pixel > 4096 || (w / pixel) * (h / pixel) > 1000000)) {
+      return { error: "This box would repeat too many texture pixels. Use Stretch to fit, a smaller texture, or less disproportionate measurements." };
+    }
+    const bands = faceBands(name, box, n, fit, wrap);
     faces.push({ name, ...bands, Tw, Th, ...grid, sheets: grid.cols * grid.rows });
   }
   const cube = box.W === box.D && box.D === box.H;
@@ -590,10 +603,12 @@ function guidePage(doc, plan, meta, pageList) {
     ]],
     ["3  PAGES", pageList],
     ["4  TRIM AND JOIN EACH FACE", [
-      "Each sheet is named by column letter and row number: A1 is top-left. Trim every sheet at its corner marks.",
-      "Brackets outside the artwork mark the bands that neighbouring sheets share.",
-      "Start with A1. Each later sheet slides under the earlier one: B1 goes under A1, A2 under A1, B2 under B1 and A2.",
-      "Line up the shared texture and tape the back.",
+      "Sheets are named by column letter and row number: A1 is top-left. Solid crosses with matching seam IDs are alignment marks; dashed ticks are folds.",
+      "First assemble each horizontal row from left to right, keeping the top/bottom paper gutters. On the earlier sheet, cut a straight vertical line through the centers of its matching top/bottom crosses (not the corner marks).",
+      "Trim the next sheet's left paper border at its corner marks. Slide it underneath until its full crosses complete the earlier sheet's half crosses. Tape the back. Repeat across the row.",
+      "Next join completed rows from top to bottom. Keep their outer left/right gutters. Cut the upper row's bottom edge on a straight horizontal line through its matching left/right cross centers.",
+      "Trim the lower row's top paper border at its corner marks. Slide the lower row underneath until its crosses complete both half crosses above, then tape the back. Repeat for remaining rows.",
+      "These seam cuts leave half the labeled overlap for gluing. Finally trim the remaining outer paper borders at corner marks. Keep textured tabs. For a single sheet, trim its paper borders directly; skip any joining direction with only one sheet.",
     ]],
     ["5  FOLD AND ATTACH", [
       "Cut away the blank corner squares marked CUT. Keep the textured tabs.",
@@ -613,11 +628,18 @@ function guidePage(doc, plan, meta, pageList) {
   };
   y += 4;
   for (const [title, lines] of steps) {
-    if (y + 16 > bottom) nextPage();
+    setText(doc, 9.5, false);
+    const firstLines = doc.splitTextToSize(lines[0] || "", textW).length;
+    const headingBlock = 10.5 + firstLines * 4.6;
+    if (y + 16 > bottom || (headingBlock <= bottom - (m + 22) && y + headingBlock > bottom)) nextPage();
     y += 5; setText(doc, 11.5, true); doc.text(title, L, y); y += 5.5;
     for (const line of lines) {
       setText(doc, 9.5, false);
       const wrapped = doc.splitTextToSize(line, textW);
+      const paragraphHeight = (wrapped.length - 1) * 4.6;
+      if (y + paragraphHeight > bottom && paragraphHeight <= bottom - (m + 22)) {
+        nextPage(); setText(doc, 9.5, false);
+      }
       for (const part of wrapped) {
         if (y > bottom) { nextPage(); setText(doc, 9.5, false); }
         doc.text(part, L, y); y += 4.6;
@@ -628,15 +650,41 @@ function guidePage(doc, plan, meta, pageList) {
   return guidePages;
 }
 
-function bracket(doc, a, b, fixed, vertical, label) {
-  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.4);
-  setText(doc, 6.5, true);
-  if (!vertical) { // band along x, drawn above the artwork at y=fixed
-    doc.line(a, fixed, b, fixed); doc.line(a, fixed - 1, a, fixed + 2); doc.line(b, fixed - 1, b, fixed + 2);
-    doc.text(label, (a + b) / 2, fixed - 1.8, { align: "center" });
-  } else { // band along y, drawn left of the artwork at x=fixed
-    doc.line(fixed, a, fixed, b); doc.line(fixed - 1, a, fixed + 2, a); doc.line(fixed - 1, b, fixed + 2, b);
-    textUp(doc, label, fixed - 1.8, (a + b) / 2);
+/** Alignment points live only in removable gutters. IDs describe a shared seam,
+ * and global coordinates make both sheets agree even when their page sizes differ. */
+function registrationMarks(fp, col, row) {
+  const marks = [], face = fp.name.toUpperCase();
+  const x0 = col * fp.stepX, y0 = row * fp.stepY;
+  const addColumn = seam => {
+    const global = seam * fp.stepX + fp.overlap / 2;
+    for (const edge of ["top", "bottom"]) marks.push({ id: `${face}:C${seam}R${row + 1}`, axis: "x", edge, global, position: global - x0 });
+  };
+  if (col > 0) addColumn(col);
+  if (col + 1 < fp.cols) addColumn(col + 1);
+  // Row joins use only the outer gutters of the completed horizontal strip.
+  if (col === 0 || col === fp.cols - 1) {
+    const edges = [];
+    if (col === 0) edges.push("left");
+    if (col === fp.cols - 1) edges.push("right");
+    for (const seam of [row, row + 1]) {
+      if (seam <= 0 || seam >= fp.rows) continue;
+      const global = seam * fp.stepY + fp.overlap / 2;
+      for (const edge of edges) marks.push({ id: `${face}:R${seam}`, axis: "y", edge, global, position: global - y0 });
+    }
+  }
+  return marks;
+}
+
+function drawRegistrationMarks(doc, fp, col, row, X0, Y0) {
+  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.3);
+  setText(doc, 5, true);
+  for (const mark of registrationMarks(fp, col, row)) {
+    const vertical = mark.axis === "y";
+    const x = vertical ? X0 + (mark.edge === "left" ? -5 : fp.tw + 5) : X0 + mark.position;
+    const y = vertical ? Y0 + mark.position : Y0 + (mark.edge === "top" ? -5 : fp.th + 5);
+    doc.line(x - 1, y, x + 1, y); doc.line(x, y - 1, x, y + 1);
+    if (vertical) textUp(doc, mark.id, x + (mark.edge === "left" ? -2 : 3), y);
+    else doc.text(mark.id, x, y + (mark.edge === "top" ? -2 : 3), { align: "center" });
   }
 }
 
@@ -680,12 +728,12 @@ function sheetPage(doc, face, fp, col, row, plan, meta, pageNo, totalPages) {
   }
 
   // Fold ticks in the gutter where each fold line crosses this sheet.
-  doc.setLineDashPattern([1.5, 1], 0); doc.setLineWidth(0.35);
+  doc.setLineDashPattern([0.5, 0.5], 0); doc.setLineWidth(0.35);
   for (const f of [w, w + fw]) if (f > win.x0 && f < win.x1) {
-    const x = toPage.x(f); doc.line(x, Y0 + th + 2, x, Y0 + th + 9); doc.line(x, Y0 - 2, x, Y0 - 9);
+    const x = toPage.x(f); doc.line(x, Y0 + th + 2, x, Y0 + th + 3.5); doc.line(x, Y0 - 2, x, Y0 - 3.5);
   }
   for (const f of [w, w + fh]) if (f > win.y0 && f < win.y1) {
-    const y = toPage.y(f); doc.line(X0 + tw + 2, y, X0 + tw + 9, y); doc.line(X0 - 2, y, X0 - 9, y);
+    const y = toPage.y(f); doc.line(X0 + tw + 2, y, X0 + tw + 3.5, y); doc.line(X0 - 2, y, X0 - 3.5, y);
   }
   doc.setLineDashPattern([], 0);
 
@@ -695,16 +743,13 @@ function sheetPage(doc, face, fp, col, row, plan, meta, pageNo, totalPages) {
     doc.line(x + dx * 2, y, x + dx * 7, y); doc.line(x, y + dy * 2, x, y + dy * 7);
   }
 
-  // Overlap bands shared with neighbouring sheets.
-  if (col > 0) bracket(doc, X0, X0 + O, Y0 - 4, false, `GOES UNDER ${sheetId(col - 1, row)}`);
-  if (col < cols - 1) bracket(doc, X0 + tw - O, X0 + tw, Y0 - 4, false, `${sheetId(col + 1, row)} GOES UNDER`);
-  if (row > 0) bracket(doc, Y0, Y0 + O, X0 - 4, true, `GOES UNDER ${sheetId(col, row - 1)}`);
-  if (row < rows - 1) bracket(doc, Y0 + th - O, Y0 + th, X0 - 4, true, `${sheetId(col, row + 1)} GOES UNDER`);
+  // Keep these gutters until their corresponding joining stage is complete.
+  drawRegistrationMarks(doc, fp, col, row, X0, Y0);
 
   // Footer.
   scaleBar(doc, m + 4, ph - m - 9, pw - 2 * m > 190 ? 100 : 50);
   setText(doc, 8, false);
-  fittedText(doc, "Trim at corner marks. Dashed ticks = fold. Keep textured tabs.", pw - m - 4, ph - m - 9, pw - 2 * m - 12 - (pw - 2 * m > 190 ? 100 : 50), 8, false, { align: "right" });
+  fittedText(doc, "Join rows first; keep alignment gutters. See assembly guide.", pw - m - 4, ph - m - 9, pw - 2 * m - 12 - (pw - 2 * m > 190 ? 100 : 50), 8, false, { align: "right" });
   setText(doc, 8, true);
   doc.text(`${pageNo} / ${totalPages}`, pw - m - 4, ph - m - 4, { align: "right" });
 }
@@ -744,7 +789,54 @@ function buildPdf(JsPDF, faces, plan, meta) {
   return doc;
 }
 
-if (typeof module !== "undefined") module.exports = { PRESETS, PRESET_IMAGES, detectLayout, extractFaces, planLayout, buildPdf, rotateFace, readSquare, faceBands, axisBands, FACE_ORDER };
+/** A separate calibration download; its exercises never change the face plan. */
+function buildTestPdf(JsPDF, { paper, margin, overlap = 15, overlapLabel = "Practice overlap" }) {
+  const P = PAPERS[paper], L = margin + 6, width = P ? P.w - 2 * margin - 12 : 0;
+  if (!P || !Number.isFinite(margin) || margin < 0 || margin > 25 || !Number.isFinite(overlap) || overlap < 5 || overlap >= width)
+    throw new Error("The test sheet needs a valid paper, margin and overlap that fits inside the page.");
+  const doc = new JsPDF({ orientation: "p", unit: "mm", format: [P.w, P.h], compress: true });
+  doc.setProperties({ title: "Block Wrap Printer - print calibration", creator: "Block Wrap Printer" });
+  fittedText(doc, "PRINT A TEST SHEET", L, margin + 10, width, 18, true);
+  fittedText(doc, `${P.name} / Actual size or 100% / single-sided / disable Fit and Shrink`, L, margin + 17, width, 9);
+  const x = L + (width - 100) / 2, y = margin + 27;
+  doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.35);
+  doc.rect(x, y, 100, 100);
+  setText(doc, 10, true);
+  doc.text("100 mm wide", x + 50, y + 7, { align: "center" });
+  doc.text("100 mm tall", x + 7, y + 50, { angle: 90 });
+  setText(doc, 9, false);
+  fittedText(doc, "Measure corner centres in both directions: both sides must be 100 mm.", L, margin + 137, width, 9);
+  fittedText(doc, "Fix scaling first. Cut out samples on solid outlines; keep blank gutters.", L, margin + 142, width, 9);
+  fittedText(doc, `${overlapLabel}: shared band ${fmt(overlap)} mm; pasted overlap ${fmt(overlap / 2)} mm`, L, margin + 148, width, 10, true);
+  const panelW = Math.min(width, Math.max(55, overlap + 12)), panelH = 13;
+  const practice = { name: "TEST", cols: 2, rows: 1, tw: panelW, th: panelH, overlap, stepX: panelW - overlap, stepY: panelH };
+  for (let panel = 0; panel < 2; panel++) {
+    const py = margin + 162 + panel * 35;
+    doc.setDrawColor(32, 43, 51); doc.setLineWidth(0.3);
+    // Outer cut rectangle retains the removable registration gutters.
+    doc.rect(L, py - 9, panelW, panelH + 18);
+    const seamX = panel === 0 ? L + panelW - overlap : L;
+    doc.setFillColor(235, 238, 240); doc.rect(seamX, py, overlap, panelH, "FD");
+    doc.setLineDashPattern([1, 1], 0);
+    doc.line(L, py, L + panelW, py); doc.line(L, py + panelH, L + panelW, py + panelH);
+    doc.setLineDashPattern([], 0);
+    setText(doc, 8, true); doc.text(panel === 0 ? "A" : "B", L + 3, py + 5);
+    drawRegistrationMarks(doc, practice, panel, 0, L, py);
+    if (panel === 0) {
+      // Cutting through the earlier sample's crosses leaves half-crosses visible
+      // against the intact marks underneath, rather than hiding both full marks.
+      const cutX = L + panelW - overlap / 2;
+      doc.setLineDashPattern([0.4, 1], 0);
+      doc.line(cutX, py - 9, cutX, py + panelH + 9);
+      doc.setLineDashPattern([], 0);
+    }
+  }
+  fittedText(doc, "Cut A on the vertical dotted line through both cross centres.", L, margin + 224, width, 9);
+  fittedText(doc, "Slide B under A; match half-crosses. Tape, then trim horizontal gutters.", L, margin + 228, width, 9);
+  return doc;
+}
+
+if (typeof module !== "undefined") module.exports = { PRESETS, PRESET_IMAGES, detectLayout, extractFaces, planLayout, buildPdf, buildTestPdf, rotateFace, readSquare, faceBands, axisBands, FACE_ORDER };
 </script>
 
 <script>
@@ -872,6 +964,7 @@ function update() {
   // Never leave a previous printable plan active while inputs are invalid or incomplete.
   current = null;
   $("makeBtn").disabled = true;
+  $("testBtn").disabled = true;
   document.querySelectorAll(".preset").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.key === state.source)));
   const layout = $("layout").value;
   $("hatRow").hidden = layout !== "skin";
@@ -910,11 +1003,12 @@ function update() {
     paper: $("paper").value, margin: marginVal,
     overlap: overlapVal, includeBottom: $("bottom").checked,
   });
+  if (plan.error) { fail(plan.error); $("stats").innerHTML = ""; return; }
   renderBox(ex.faces, box, n, fit);
   renderNet(ex.faces, box, n, fit);
-  if (plan.error) { fail(plan.error); $("stats").innerHTML = ""; return; }
   current = { faces: ex.faces, plan, box, n, fit };
   $("makeBtn").disabled = false;
+  $("testBtn").disabled = false;
   $("status").textContent = "";
   renderStats(plan, pixel);
   syncPlanFaces(plan);
@@ -1320,18 +1414,7 @@ function renderPlan() {
   $("planCaption").innerHTML = `<b>How the ${fp.name} splits across ${fp.sheets === 1 ? "one sheet" : fp.sheets + " sheets"}.</b> Dashed line = folds; lighter bands = tabs and overlaps; corners are cut away.`;
 }
 
-async function makePdf() {
-  if (!current) return;
-  const btn = $("makeBtn");
-  btn.disabled = true; $("status").textContent = "Building the PDF…";
-  try {
-    const { plan, faces, box, n, fit } = current;
-    const title = ($("title").value || "Minecraft block").trim();
-    const net = netImage(faces, box, n, fit, 480, 640, false);
-    const doc = buildPdf(window.jspdf.jsPDF, faces, plan, { title, netPng: net.toDataURL("image/png"), netAspect: net.height / net.width });
-    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "block";
-    const size = plan.cube ? `${fmt(box.W)}mm` : `${fmt(box.W)}x${fmt(box.D)}x${fmt(box.H)}mm`;
-    const filename = `${slug}-${plan.paper}-${size}.pdf`;
+async function savePdf(doc, filename) {
     const blob = doc.output("blob");
     const downloads = window.claude?.use ? await window.claude.use("downloads").catch(() => null) : null;
     if (downloads) {
@@ -1344,6 +1427,38 @@ async function makePdf() {
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       $("status").textContent = `Downloaded ${filename}`;
     }
+}
+
+async function makeTestPdf() {
+  if (!current) return;
+  const btn = $("testBtn"); btn.disabled = true;
+  $("status").textContent = "Building the test sheet…";
+  try {
+    const { plan } = current;
+    const sample = plan.faces.find(f => f.overlap > 0);
+    const enteredOverlap = $("overlap").value.trim();
+    const overlap = sample ? sample.overlap : enteredOverlap ? Number(enteredOverlap) : 15;
+    const overlapLabel = sample ? `Practice overlap from ${sample.name} face` : "Practice overlap (no tiled faces)";
+    const doc = buildTestPdf(window.jspdf.jsPDF, { paper: plan.paper, margin: plan.margin, overlap, overlapLabel });
+    await savePdf(doc, `print-test-${plan.paper}.pdf`);
+  } catch (e) {
+    console.error(e); $("status").textContent = "Could not build the test sheet: " + e.message;
+  } finally { btn.disabled = !current; }
+}
+
+async function makePdf() {
+  if (!current) return;
+  const btn = $("makeBtn");
+  btn.disabled = true; $("status").textContent = "Building the PDF…";
+  try {
+    const { plan, faces, box, n, fit } = current;
+    const title = ($("title").value || "Minecraft block").trim();
+    const net = netImage(faces, box, n, fit, 480, 640, false);
+    const doc = buildPdf(window.jspdf.jsPDF, faces, plan, { title, netPng: net.toDataURL("image/png"), netAspect: net.height / net.width });
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "block";
+    const size = plan.cube ? `${fmt(box.W)}mm` : `${fmt(box.W)}x${fmt(box.D)}x${fmt(box.H)}mm`;
+    const filename = `${slug}-${plan.paper}-${size}.pdf`;
+    await savePdf(doc, filename);
   } catch (e) {
     console.error(e);
     $("status").textContent = "Something went wrong building the PDF: " + e.message;
@@ -1379,6 +1494,7 @@ function init() {
   ["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("over")));
   drop.addEventListener("drop", e => { e.preventDefault(); useFile(e.dataTransfer.files[0]); });
   $("makeBtn").addEventListener("click", makePdf);
+  $("testBtn").addEventListener("click", makeTestPdf);
   enableDrag();
   buildPresetButtons().then(() => usePreset("wither"));
 }

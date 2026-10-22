@@ -37,7 +37,7 @@ test('30 by 30 sheet map stays inside reserved header', () => {
   const map = doc.pages[0].filter(x => x.type === 'rect').slice(0, 900);
   assert.equal(map.length, 900);
   assert.ok(map.every(r => r.y + r.h <= p.margin + 14.001));
-  const footer = doc.pages[0].find(x => x.type === 'text' && x.t.startsWith('Trim at'));
+  const footer = doc.pages[0].find(x => x.type === 'text' && x.t.startsWith('Join rows first'));
   assert.ok(footer.x - footer.width >= p.margin + 4 + 50);
 });
 test('PDF sheet numbering includes all guide continuation pages', () => {
